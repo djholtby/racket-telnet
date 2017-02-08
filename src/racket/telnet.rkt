@@ -1,4 +1,6 @@
 #lang racket
+(require racket/class
+         json)
 
 #|-----------------------------------------------------------------------------
  | Racket Telnet interface module
@@ -29,22 +31,20 @@
 
 
 
-(define-class telnet-socket object%
+(define telnet-socket (class object%
   (super-new)
   (init-field native-socket)
   (link-native-socket native-socket this)
   (field [gmcp (make-hash)]
          [on-gmcp (void)]
          [on-text (void)])
-
+  
   (define/public (gmcp-send key value)
     (unless (jsexpr? value) (raise-argument-error 'gmcp-send "jsexpr?" value))
     (native-gmcp-send native-socket key (jsexpr->bytes value)))
-
+  
   (define/public (gmcp-receive key value)
     (hash-set! gmcp key (bytes->jsexpr value))
     (when (procedure? on-gmcp) (on-gmcp gmcp)))
-    
-  ...
-  )
   
+  ))
