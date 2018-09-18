@@ -1,6 +1,6 @@
 #lang racket/base
 
-(require racket/class racket/list json ffi/unsafe/atomic)
+(require racket/class racket/list racket/set json ffi/unsafe/atomic)
 (require "objects.rkt")
 (require "msdp.rkt")
 (require "pinkfish.rkt")
@@ -9,7 +9,7 @@
          register-print-callback add-message-to-griftos)
 
 (provide telnet telnet? telnet-cptr telnet-encoding set-telnet-encoding! telnet-client set-telnet-client! telnet-term
-         set-telnet-term! telnet-supports set-telnet-supports! telnet-supports? telnet-connected? set-telnet-connected?!
+         set-telnet-term! telnet-supports set-telnet-supports! telnet-supports-union! telnet-supports? telnet-connected? set-telnet-connected?!
          telnet-user-data set-telnet-user-data! telnet-language set-telnet-language!)
 
 ;; a TelnetMessage is one of
@@ -36,11 +36,11 @@
   (set! telnet-send
         (lambda (t . msgs)
           (define msgs/ansi (map (λ (msg) (if (string? msg) (pinkfishx msg (telnet-supports t)) msg)) msgs))
-          #|(start-atomic)|#
+          (start-atomic)
           (when (telnet-connected? t)
             (for ([msg/ansi (in-list msgs/ansi)])
               (cb (telnet-cptr t) msg/ansi)))
-          #|(end-atomic)|#)))
+          (end-atomic))))
 
 
 (define (telnet-send/prompt t . values)
@@ -75,7 +75,14 @@
 (define (telnet-supports? t option)
   (unless (telnet? t)
     (raise-argument-error 'telnet-supports? "telnet?" t))
-  (and (memq option (telnet-supports t)) #t))
+  (set-member? (telnet-supports t) option))
+
+(define (telnet-supports-union! t . lol)
+  (start-atomic)
+  (for* ([settings (in-list lol)]
+         [setting (in-list settings)])
+    (set-add! (telnet-supports t) setting))
+  (end-atomic))
 
 ;(define (add-message-to-racket msg tn)
 ;  (unless (telnet? tn)
