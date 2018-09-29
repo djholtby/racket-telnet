@@ -10,7 +10,7 @@
 
 (provide telnet telnet? telnet-cptr telnet-encoding set-telnet-encoding! telnet-client set-telnet-client! telnet-term
          set-telnet-term! telnet-supports set-telnet-supports! telnet-supports-union! telnet-supports? telnet-connected? set-telnet-connected?!
-         telnet-user-data set-telnet-user-data! telnet-language set-telnet-language!)
+         telnet-user-data set-telnet-user-data! telnet-language set-telnet-language! telnet-vars)
 
 ;; a TelnetMessage is one of
 ;; * String
@@ -70,7 +70,8 @@
 
 
 (struct telnet (cptr [on-message #:mutable] [client #:mutable] [term #:mutable] [encoding #:mutable]
-                     [supports #:mutable] [connected? #:mutable] [language #:mutable] [user-data #:mutable]))
+                     [supports #:mutable] [connected? #:mutable] [language #:mutable] [user-data #:mutable] [vars #:auto])
+  #:auto-value (make-hasheq))
 
 (define (telnet-supports? t option)
   (unless (telnet? t)
