@@ -36,12 +36,11 @@
   (set! telnet-send
         (lambda (t . msgs)
           (define msgs/ansi (map (λ (msg) (if (string? msg) (pinkfishx msg (telnet-supports t)) msg)) msgs))
-          ;(start-atomic)
+          (start-atomic)
           (when (telnet-connected? t)
             (for ([msg/ansi (in-list msgs/ansi)])
               (cb (telnet-cptr t) msg/ansi)))
-          ;(end-atomic))))
-          )))
+          (end-atomic))))
 
 
 (define (telnet-send/prompt t . values)
