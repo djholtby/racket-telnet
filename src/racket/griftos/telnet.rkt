@@ -1,6 +1,6 @@
 #lang racket/base
 
-(require racket/class racket/list racket/set json ffi/unsafe/atomic)
+(require racket/class racket/list racket/set json ffi/unsafe/atomic racket/bool racket/contract)
 (require "objects.rkt")
 (require "msdp.rkt")
 (require "pinkfish.rkt")
@@ -10,7 +10,9 @@
 
 (provide telnet telnet? telnet-cptr telnet-encoding set-telnet-encoding! telnet-client set-telnet-client! telnet-term
          set-telnet-term! telnet-supports set-telnet-supports! telnet-supports-union! telnet-supports? telnet-connected? set-telnet-connected?!
-         telnet-user-data set-telnet-user-data! telnet-language set-telnet-language! telnet-vars)
+         telnet-user-data set-telnet-user-data! telnet-language set-telnet-language! telnet-vars text->telnet-string)
+
+(provide telnet-message? telnet-message?/c)
 
 ;; a TelnetMessage is one of
 ;; * String
@@ -19,6 +21,23 @@
 ;; * (list 'MSSP Bytes)
 ;; * false - disconnect event/request
 ;; * EOF   - acknowledged disconnect (means telnet object is disposed of)
+
+(define (telnet-message? v)
+  (or (string? v)
+       (symbol? v)
+       (false? v)
+       (eof-object? v)
+       (and
+        (cons? v)
+        (symbol? (car v)))))
+
+(define telnet-message?/c
+  (or/c string? symbol? #f eof-object? (*list/c symbol?)))
+        
+        
+(define (text->telnet-string text tn)
+  (text->string text (telnet-language tn) (telnet-encoding tn)))
+
 
                
 ; (send-to-user t message) sends message to the C backend telnet struct cptr
