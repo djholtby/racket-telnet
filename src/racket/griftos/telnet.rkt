@@ -9,8 +9,8 @@
          register-print-callback add-message-to-griftos)
 
 (provide telnet telnet? telnet-cptr telnet-encoding set-telnet-encoding! telnet-client set-telnet-client! telnet-term
-         set-telnet-term! telnet-supports set-telnet-supports! telnet-supports-union! telnet-supports? telnet-connected? set-telnet-connected?!
-         telnet-user-data set-telnet-user-data! telnet-language set-telnet-language! telnet-vars text->telnet-string)
+         set-telnet-term! set-telnet-ip! telnet-ip telnet-supports set-telnet-supports! telnet-supports-union! telnet-supports? telnet-connected? set-telnet-connected?!
+         telnet-user-data set-telnet-user-data! telnet-language set-telnet-language! telnet-vars)
 
 (provide telnet-message? telnet-message?/c)
 
@@ -34,11 +34,6 @@
 (define telnet-message?/c
   (or/c string? symbol? #f eof-object? (*list/c symbol?)))
         
-        
-(define (text->telnet-string text tn)
-  (text->string text (telnet-language tn) (telnet-encoding tn)))
-
-
                
 ; (send-to-user t message) sends message to the C backend telnet struct cptr
 ; send-to-user: Telnet TelnetMessage -> Void
@@ -89,7 +84,7 @@
 
 
 (struct telnet (cptr [on-message #:mutable] [client #:mutable] [term #:mutable] [encoding #:mutable]
-                     [supports #:mutable] [connected? #:mutable] [language #:mutable] [user-data #:mutable] [vars #:auto])
+                     [supports #:mutable] [connected? #:mutable] [language #:mutable] [ip #:mutable] [user-data #:mutable] [vars #:auto])
   #:auto-value (make-hasheq))
 
 (define (telnet-supports? t option)
