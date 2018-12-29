@@ -32,7 +32,7 @@
         (symbol? (car v)))))
 
 (define telnet-message?/c
-  (or/c string? symbol? #f eof-object? (*list/c symbol?)))
+  (or/c string? symbol? #f eof-object? (cons/c symbol? any/c)))
         
                
 ; (send-to-user t message) sends message to the C backend telnet struct cptr
