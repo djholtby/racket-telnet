@@ -12,13 +12,15 @@
          set-telnet-term! set-telnet-ip! telnet-ip telnet-supports set-telnet-supports! telnet-supports-union! telnet-supports? telnet-connected? set-telnet-connected?!
          telnet-user-data set-telnet-user-data! telnet-language set-telnet-language! telnet-vars)
 
-(provide telnet-message? telnet-message?/c)
+(provide telnet-message? telnet-message?/c conn<%>)
+
+
+
 
 ;; a TelnetMessage is one of
 ;; * String
 ;; * Symbol
-;; * (list 'GMCP Bytes)
-;; * (list 'MSSP Bytes)
+;; * (cons Symbol Any)
 ;; * false - disconnect event/request
 ;; * EOF   - acknowledged disconnect (means telnet object is disposed of)
 
@@ -33,7 +35,13 @@
 
 (define telnet-message?/c
   (or/c string? symbol? #f eof-object? (cons/c symbol? any/c)))
-        
+
+;; A connection is a telnet socket or something logically equivalent
+(define conn<%>
+  (interface ()
+    [receive  (->m telnet-message?/c void?)]      ; called when the server receives a message from the client
+    [transmit (->m telnet-message?/c ... void?)]  ; you can call this to send a message back to the client.
+    )) 
                
 ; (send-to-user t message) sends message to the C backend telnet struct cptr
 ; send-to-user: Telnet TelnetMessage -> Void
