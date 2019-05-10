@@ -1,6 +1,26 @@
 #lang racket/base
 
+
 (require racket/class racket/list racket/set json ffi/unsafe/atomic racket/bool racket/contract)
+
+(provide telnet-callback register-print-callback telnet-semaphore)
+
+
+(define telnet-callback void)
+
+(define telnet-semaphore (make-semaphore 1))
+
+; (register-print-callback cb) registers native function cb as the send-to-user function
+; register-print-callback: (CPTR ByteStr -> Void) -> Void
+(define (register-print-callback cb)
+  (unless (procedure? cb)
+    (raise-argument-error 'register-print-callback "procedure?" cb))
+  (unless (procedure-arity-includes? cb 2)
+    (raise-argument-error 'register-print-callback "(procedure-arity-includes?/c 2)" cb))
+  (set! telnet-callback cb))
+
+
+#|
 (require "objects.rkt")
 (require "msdp.rkt")
 (require "pinkfish.rkt")
@@ -121,4 +141,4 @@
 (define (add-message-to-griftos tn msg)
   (unless (telnet? tn)
     (raise-argument-error 'add-message-to-racket "telnet?" tn))
-  ((telnet-on-message tn) tn msg))
+  ((telnet-on-message tn) tn msg))|#
