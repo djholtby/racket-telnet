@@ -1,10 +1,8 @@
 #lang racket
 (require xml)
 
-;(define test-text
-;  `(text () "Welcome to " (emph () "GriftOS Test Server") "!" ))
 
-(provide xexpr->telnet xexpr->mxp)
+(provide xexpr->telnet xexpr->mxp xexpr->string/settings)
 
 (provide terminal-support terminal-support? terminal-support-color terminal-support-italic? terminal-support-underline?)
 (provide font-mode font-mode? font-mode-color font-mode-italic font-mode-bold font-mode-underline font-mode-visible?)
@@ -18,8 +16,6 @@
 (struct terminal-support (color italic? underline?) #:transparent)
 (struct font-color (ansi ansi-faint xterm rgb) #:transparent)
 
-;(define test-settings
-;  (hasheq 'emph (font-mode (cons (font-color 15 7 200 (list 128 128 128)) #f) #f #f #f #t) 'terminal (terminal-support 'true-color #t #t)))
 
 
 ;; foreground background : (list num num (list num num num)) or f (no change) or 'default
@@ -227,6 +223,30 @@
       (string-join (map (λ (pair)
                           (format "~a=\"~a\"" (first pair) (second pair))) params) " " #:before-first " ")))
 
+(define (tag-params tag params settings)
+  (define fm (settings-ref tag params settings))
+  (define style-text empty)
+  #|(when (car (font-mode-color fm))
+    
+    `((color . ,(fmc->html (car (font-mode-color fm)))))
+       '())
+   (if (cdr (font-mode-color fm))
+       `((background-color|#
+  (if (cons? style-text) (list (cons 'style (string-join style-text ";") )) empty))
+   
+(define (add-options-to-tags xpr settings)
+  (let loop ([content xpr])
+    (match content
+      [(? string?) content]
+      [(list tag (list params ...) body ...)
+        #:when (settings-show? tag params settings)
+        `(,tag (,@params ,@(tag-params tag params settings))
+               ,@(map loop body))])))
+
+
+(define (xexpr->string/settings xpr settings)
+  (xexpr->string (add-options-to-tags xpr settings)))
+
 (define (xexpr->mxp xpr settings)
   (define out (open-output-string))
   (let loop ([content (cddr xpr)])
@@ -242,6 +262,17 @@
       (loop (rest content))))
   (get-output-string out))
 
+(module+ test
+  (define test-text
+    `(text () "Welcome to " (emph () "GriftOS Test Server") "!" ))
+  (define test-settings
+    (hasheq 'emph (font-mode (cons (font-color 15 7 200 (list 128 128 128)) #f) #f #f #f #t) 'terminal (terminal-support 'true-color #t #t)))
+  (displayln "xexpr->telnet")
+  (xexpr->telnet test-text test-settings)
+  (displayln "xexpr->mxp")
+  (xexpr->mxp test-text test-settings)
+  (displayln "xexpr->string/settings")
+  (xexpr->string/settings test-text test-settings))
 ;(require profile profile/render-graphviz)
 ;(profile (xexpr->telnet test-text test-settings) #:repeat 200000 #:delay 0.005 #:use-errortrace? #t #:render render)
 ;" VOOP "

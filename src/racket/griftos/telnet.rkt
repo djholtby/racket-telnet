@@ -957,7 +957,7 @@ EOR
          (send-bytes (escape-iac-and-cr (transcode-output (xexpr->telnet msg markup-settings)))) #t]
         [(list (and telopt (? telopt?)) args ...)
          (send this send-subnegotiate (constant-value 'telopt telopt) #:flush? #t . args) #t]
-        [(or #f (? eof-object?)) (on-close) #f]
+        [(or #f (? eof-object?)) (on-close) (receive eof) #f]
         ['echo
          (disable-telopt telopt:echo 'local) #t]
         ['noecho
