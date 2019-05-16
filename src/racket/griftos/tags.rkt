@@ -159,8 +159,8 @@
                         
   
 (define (settings-ref tag params settings)
-  (if (assq 'id params)
-      (hash-ref settings (string->symbol (string-append (symbol->string tag) "#" (cdr (assq 'id params))))
+  (if (assq 'type params)
+      (hash-ref settings (string->symbol (string-append (symbol->string tag) "#" (second (assq 'type params))))
                 (λ () (hash-ref settings tag (λ () (font-mode #f #f #f #f #t)))))
       (hash-ref settings tag (λ () (font-mode #f #f #f #f #t)))))
       
@@ -222,17 +222,6 @@
   (if (empty? params) ""
       (string-join (map (λ (pair)
                           (format "~a=\"~a\"" (first pair) (second pair))) params) " " #:before-first " ")))
-
-(define (tag-params tag params settings)
-  (define fm (settings-ref tag params settings))
-  (define style-text empty)
-  #|(when (car (font-mode-color fm))
-    
-    `((color . ,(fmc->html (car (font-mode-color fm)))))
-       '())
-   (if (cdr (font-mode-color fm))
-       `((background-color|#
-  (if (cons? style-text) (list (cons 'style (string-join style-text ";") )) empty))
    
 (define (add-options-to-tags xpr settings)
   (let loop ([content xpr])
@@ -240,10 +229,57 @@
       [(? string?) content]
       [(list tag (list params ...) body ...)
         #:when (settings-show? tag params settings)
-        `(,tag (,@params ,@(tag-params tag params settings))
-               ,@(map loop body))])))
+       `(,tag (,@(map (lambda (pair)
+                        (cons (string->symbol (string-append "data-mxp-" (symbol->string (car pair))))
+                              (cdr pair))) params))
+              ,@(map loop body))])))
 
+(define (byte->hex b)
+  (if (< b 16)
+      (string-append "0" (number->string b 16))
+      (number->string b 16)))
 
+(define (color->CSS fmc)
+  (define rgb (or (font-color-rgb fmc)
+;                  (xterm->rgb (font-color-xterm fmc))
+                  ;                  (ansi->rgb (font-color-ansi fmc))
+                  ))
+  (string-append "#"
+                 (string-join (map byte->hex rgb) "")))
+
+(define (font-mode->CSS fm)
+  (define result (open-output-string))
+  (define fg (and (font-mode-color fm) (car (font-mode-color fm))))
+  (define bg (and (font-mode-color fm) (cdr (font-mode-color fm))))
+  (when fg
+    (display "color: " result)
+    (displayln (color->CSS fg) result))
+  (when bg
+    (display "background-color: " result)
+    (displayln (color->CSS bg) result))
+  (when (font-mode-italic fm)
+    (displayln "font-mode: italic" result))
+  (when (font-mode-bold fm)
+    (displayln "font-weight: bold" result))
+  (when (font-mode-underline fm)
+    (displayln "text-decoration: underline" result))
+  (get-output-string result))
+  
+(define (settings->CSS settings)
+  (define result (open-output-string))
+  (for ([(tag setting) (in-hash settings)]
+        #:unless (eq? tag 'terminal))
+    (define tag/string (symbol->string tag))
+    (define tag/split (regexp-match #rx"^([^#]*)#([^#]*)$" tag/string))
+    (define just-tag (if tag/split (second tag/split) tag/string))
+    (define maybe-attr (if tag/split (third tag/split) #f))
+    (displayln (format "~a~a {\n~a}\n"
+                     just-tag
+                     (if maybe-attr (format "[data-mxp-type=\"~a\"]" maybe-attr) "")
+                     (font-mode->CSS setting)
+                     ) result))
+  (get-output-string result))
+     
 (define (xexpr->string/settings xpr settings)
   (xexpr->string (add-options-to-tags xpr settings)))
 
@@ -264,15 +300,21 @@
 
 (module+ test
   (define test-text
-    `(text () "Welcome to " (emph () "GriftOS Test Server") "!" ))
+    `(text () "Welcome to " (emph () "GriftOS Test Server") "!" (chat ((type "club")) "CLUB CHAT")))
   (define test-settings
-    (hasheq 'emph (font-mode (cons (font-color 15 7 200 (list 128 128 128)) #f) #f #f #f #t) 'terminal (terminal-support 'true-color #t #t)))
+    (hasheq 'emph (font-mode (cons (font-color 15 7 200 (list 128 128 128)) #f) #f #f #f #t)
+            'chat#club (font-mode (cons (font-color 15 4 299 (list 9 8 16)) #f) #t #t #t #t)
+            'terminal (terminal-support 'true-color #t #t)))
+  (displayln "css")
+  (displayln (settings->CSS test-settings))
   (displayln "xexpr->telnet")
   (xexpr->telnet test-text test-settings)
   (displayln "xexpr->mxp")
   (xexpr->mxp test-text test-settings)
   (displayln "xexpr->string/settings")
   (xexpr->string/settings test-text test-settings))
+
+
 ;(require profile profile/render-graphviz)
 ;(profile (xexpr->telnet test-text test-settings) #:repeat 200000 #:delay 0.005 #:use-errortrace? #t #:render render)
 ;" VOOP "
