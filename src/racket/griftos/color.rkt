@@ -1,6 +1,132 @@
 #lang racket/base
 
-(provide rgb-table)
+(require racket/match racket/list racket/vector racket/string)
+(provide rgb-table rgb->xterm rgb->ansi xterm->rgb xterm->ansi string->color)
+
+(module+ test
+  (let loop ()
+    (define line (read-line))
+    (unless (eof-object? line)
+      (define col (string->color (string-trim line)))
+      
+      (when col
+        (apply printf "~a\n\e[38;5;~amANSI4\e[38;5;~amANSI3\e[38;5;~amXTERM\e[38;2;~a;~a;~am RGB \e[0m\n"
+               col
+                (first col)
+                (second col)
+                (third col)
+                (fourth col)))
+      (loop))))
+
+;; color format is ANSI, ANSI/DIM, XTERM, RGB
+;; if RGB is missing, falls back to XTERM.  If XTERM is missing, falls back to ANSI
+
+;; ANSI/DIM is used only for BG colors and only for terminals that don't support bright BG
+(define (rgb->tuple . rgb)
+    (list (rgb->ansi rgb #t)
+          (rgb->ansi rgb #f)
+          (apply rgb->xterm rgb)
+          rgb))
+
+(define (string->color s)
+  (define n (string->number s))
+  (define hex/6 (regexp-match #px"^\\s*#([A-Fa-f0-9]{2})([A-Fa-f0-9]{2})([A-Fa-f0-9]{2})\\s*$" s))
+  (define hex/3 (regexp-match #px"^\\s*#([A-Fa-f0-9])([A-Fa-f0-9])([A-Fa-f0-9])\\s*$" s))
+  (define name-lookup (hash-ref rgb-table (string->symbol (string-downcase (string-trim s))) #f))
+    (cond [(and n (< n 8)) (list n n n #f)]
+        [(and n (< n 16)) (list n (- n 8) n #f)]
+        [(and n (< n 256))
+         (list (xterm->ansi n #f) (xterm->ansi n #f) n #f)]
+        [n #f]
+        [hex/6 (rgb->tuple (string->number (second hex/6) 16)
+                           (string->number (third hex/6) 16)
+                           (string->number (fourth hex/6) 16))]
+        [hex/3 (rgb->tuple (* 16 (string->number (second hex/3) 16))
+                           (* 16 (string->number (third hex/3) 16))
+                           (* 16 (string->number (fourth hex/3) 16)))]
+        [else name-lookup]))
+        
+
+(define (rgb->xterm r g b)
+  (define rg (abs (- r g)))
+  (define rb (abs (- r b)))
+  (define gb (abs (- b g)))
+  (if (<= (+ rg rb gb) 24) ;; gray
+      (min 255 (round (+ 232 (* 24/255 (/ (+ r g b) 3)))))
+      (let ([rv (round (/ r 51))]
+            [gv (round (/ g 51))]
+            [bv (round (/ b 51))])
+        (+ 16 (* rv 36) (* gv 6) bv))))
+
+
+(define (delta-rgb rgb1 rgb2)
+
+  (match-define (list r1 g1 b1) rgb1)
+  (match-define (list r2 g2 b2) rgb2)
+
+  (define rbar (/ (+ r1 r2) 2))
+  (define delta-r (- r1 r2))
+  (define delta-g (- g1 g2))
+  (define delta-b (- b1 b2))
+  (sqrt (+ (* 3 (* delta-r delta-r))
+           (* 4 (* delta-g delta-g))
+           (* 2 (* delta-b delta-b))
+           (/ (* rbar (- (* delta-r delta-r)
+                         (* delta-b delta-b)))
+              256))))
+
+(define (xterm->rgb num)
+  (unless (<= 0 num 255)
+    (raise-argument-error "(between/c 0 256)" num))
+  (vector-ref color-table num))
+
+(define (xterm->ansi num allow-bright?)
+  (unless (<= 0 num 255)
+    (raise-argument-error "(between/c 0 256)" num))
+  (cond [(< num 8) num]
+        [(and (< num 16) allow-bright?) num]
+        [(< num 16) (- num 8)]
+        [else (rgb->ansi (xterm->rgb num) allow-bright?)]))
+
+(define (rgb->ansi rgb allow-bright?)
+  (argmin (lambda (idx)
+            (delta-rgb rgb (vector-ref color-table idx)))
+          (range (if allow-bright? 16 8))))
+
+(define color-table
+  (vector-append
+   '#((0 0 0)
+      (170 0 0)
+      (0 170 0)
+      (170 85 0)
+      (0 0 170)
+      (170 0 170)
+      (0 170 170)
+      (170 170 170)
+      (128 128 128)
+      (255 85 85)
+      (85 255 85)
+      (255 255 85)
+      (85 85 255)
+      (255 85 255)
+      (85 255 255)
+      (255 255 255))
+   (make-vector 240)))
+
+(for* ([r (in-range 6)]
+       [g (in-range 6)]
+       [b (in-range 6)])
+  (let ([indx (+ 16 (* r 36) (* g 6) b)]
+        [rv (* 51 r)]
+        [gv (* 51 g)]
+        [bv (* 51 b)])
+      (vector-set! color-table indx (list rv gv bv))))
+
+(for ([g (in-range 24)])
+  (vector-set! color-table (+ 232 g)
+               (let ([shade (round (* (add1 g) 255/24))])
+                 (list shade shade shade))))
+
 
 (define rgb-table
   '#hasheq((aliceblue . (15 7 15 (240 248 255)))
