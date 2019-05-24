@@ -723,6 +723,20 @@ EOR
 
     (define/public (set-dimensions! width height)
       (set! terminal-dimensions (cons width height)))
+
+    (inherit supports?)
+    (define terminal-settings (terminal-support 'ansi #t #t #f #t))
+    (define/override (supports-union! . sup)
+      (super supports-union! . sup)
+      (set! terminal-settings
+            (terminal-support (cond [(supports? 'true-color) 'true-color]
+                                    [(supports? 'xterm) 'xterm]
+                                    [(supports? 'color) 'ansi]
+                                    [else #f])
+                              (supports? 'italic)
+                              (supports? 'underline)
+                              #f
+                              (supports? 'strikethrough))))
     
     (define (next-byte)
       (define b (with-handlers ([exn? (λ (e) eof)])
@@ -954,7 +968,7 @@ EOR
         [(? bytes?) (send-bytes (escape-iac-and-cr msg)) #t]
         [(? string?) (send-bytes (escape-iac-and-cr (transcode-output msg))) #t]
         [(list 'text contents ...)
-         (send-bytes (escape-iac-and-cr (transcode-output (xexpr->telnet msg markup-settings)))) #t]
+         (send-bytes (escape-iac-and-cr (transcode-output (xexpr->telnet msg terminal-settings markup-settings)))) #t]
         [(list (and telopt (? telopt?)) args ...)
          (send this send-subnegotiate (constant-value 'telopt telopt) #:flush? #t . args) #t]
         [(or #f (? eof-object?)) (on-close) (receive eof) #f]
