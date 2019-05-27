@@ -44,7 +44,7 @@ a color scheme is a
 
 (define (mxp-opt->string name mo)
   (define result (open-output-string))
-  (fprintf result "<!ELEMENT ~a" name)
+  (fprintf result "<!EL ~a" name)
   (when mo
     (when (mxp-opt-defn mo)
       (fprintf result " '~a'" (mxp-opt-defn mo)))
@@ -62,7 +62,8 @@ a color scheme is a
   (get-output-string result))
 
 (define (get-mxp-elements)
-  (hash-map (lambda (name tag)
+  (hash-map tags
+            (lambda (name tag)
               (mxp-opt->string name (g-tag-mxp-options tag)))))
 
 (define (make-mxp-opt #:defn [defn #f] #:att [att #f] #:tag [tag #f] #:flag [flag #f] #:open? [open? #f] #:empty? [empty? #f])
@@ -192,17 +193,17 @@ a color scheme is a
            (define nl?
              (match (first content)
                [(? string?) (display (first content) out) (char=? (string-ref (first content) (sub1 (string-length (first content)))) #\newline)]
-               [(or 'br (list 'br '())) (display "\n" out) #t]
+               [(or 'br (list 'br '())) (display "\e[K\n" out) #t]
                [(list tag (list params ...) body ...)
                 (define new-format (fontmode-combine format (settings-ref tag params settings tags)))
                 (define tag-info (hash-ref tags tag #f))
                 (define is-div? (and tag-info (memq (g-tag-html-eqv tag-info) div-like-tags)))
                 (when (and is-div? (not last-was-nl?))
-                  (display "\n" out))
+                  (display "\e[K\n" out))
                 (write-ansi-code (font-mode-change->ansi format new-format terminal)  out)
                 (define nested-nl? (loop new-format body (or last-was-nl? is-div?)))
                 (when (and is-div? (not nested-nl?))
-                  (display "\n" out))
+                  (display "\e[K\n" out))
                 (write-ansi-code (font-mode-change->ansi new-format format terminal) out)
                 (or nested-nl? is-div?)]
                [else last-was-nl?]))
@@ -225,19 +226,19 @@ a color scheme is a
            (define nl?
              (match (first content)
                [(? string?) (display (first content) out) (char=? (string-ref (first content) (sub1 (string-length (first content)))) #\newline)]
-               [(or 'br (list 'br '())) (display "\n" out) #t]
+               [(or 'br (list 'br '())) (display "\e[K\n" out) #t]
                [(list tag (list params ...) body ...)
                 (define new-format (fontmode-combine font-format (settings-ref tag params settings tags)))
                 (define tag-info (hash-ref tags tag #f))
                 (define is-div? (and tag-info (memq (g-tag-html-eqv tag-info) div-like-tags)))
                 (when (and is-div? (not last-was-nl?))
-                  (display "\n" out))
+                  (display "\e[K\n" out))
                 (write-ansi-code (font-mode-change->ansi font-format new-format terminal)  out)
                 (display (format "\e[4z<~a~a>" tag (html-params params)) out)
                 (define nested-nl? (loop new-format body (or last-was-nl? is-div?)))
                 (display (format "\e[4z</~a>" tag) out)
                 (when (and is-div? (not nested-nl?))
-                  (display "\n" out))
+                  (display "\e[K\n" out))
                 (write-ansi-code (font-mode-change->ansi new-format font-format terminal) out)
                 (or is-div? nested-nl?)]
                [else last-was-nl?]))
@@ -334,14 +335,15 @@ a color scheme is a
      (g-tag 'room-name 'div (make-mxp-opt #:flag "RoomName") '())
      (g-tag 'exits 'div (make-mxp-opt #:flag "RoomExit") '())
      (g-tag 'exit 'a (make-mxp-opt #:defn "<send href=\"&text;\" EXPIRE=\"exits\">") '())
-     (g-tag 'chat 'div (make-mxp-opt #:open? #t #:att #f) '(type channel))
+     (g-tag 'gossip 'div (make-mxp-opt #:open? #t #:att "channel sender") '(channel))
+     (g-tag 'shout 'div (make-mxp-opt #:open? #t #:att "sender") '())
      (g-tag 'text 'div #f '())
      ))
   (define test-tags/hash (make-hasheq (map (lambda (gt) (cons (g-tag-name gt) gt)) test-tags)))
   (define test-text
     `(text () "Welcome to " (keyword () "Test Server") "! <><><>"
-           (chat ((type "club") (channel "wizards")) "wizards only, fool!")
-           (chat ((type "shout")) "LOL!")
+           (gossip ((channel "wizards") (sender "Zared")) "wizards only, fool!")
+           (shout ((sender "Nobody")) "LOL!")
            (exits ()
                   "Obvious Exits: "
                   (exit () "north") ", "
@@ -350,10 +352,10 @@ a color scheme is a
                   (exit () "dennis"))))
   (define test-settings
     (hasheq 'keyword (fontmode (font-color 10 2 10 (list 128 255 128)) #f #f #f #f #f)
-            'chat (fontmode (font-color 6 6 6 #f) #f #f #f #f #f)
+            'shout (fontmode (font-color 11 3 11 #f) #f #f #f #f #f)
             'exits (fontmode (font-color 2 2 2 #f) #f #f #f #f #f)
-            '|chat[type=club]| (fontmode #f #f 'on #f #f #f)
-            '|chat[channel=wizards]| (fontmode #f (font-color 0 0 53 #f)  #f #f 'on 'on)))
+            'gossip (fontmode (font-color 6 6 6 #f) #f #f #f #f #f)
+            '|gossip[channel=wizards]| (fontmode #f (font-color 5 5 53 #f)  #f #f 'on 'on)))
   ;  _(define (settings-ref tag params settings tags)
   (settings-ref 'keyword empty test-settings test-tags/hash)
   (settings-ref 'room-name empty test-settings test-tags/hash)
@@ -372,8 +374,10 @@ a color scheme is a
   test-text
   (displayln "XTERM\n--------")
   (displayln (xexpr->telnet test-text (terminal-support 'xterm #t #t #f #t) test-settings test-tags/hash))
+  (xexpr->telnet test-text (terminal-support 'xterm #t #t #f #t) test-settings test-tags/hash)
   (displayln "XTERM+MXP\n--------")
   (displayln (xexpr->mxp test-text (terminal-support 'xterm #t #t #f #t) test-settings test-tags/hash))
+  (xexpr->mxp test-text (terminal-support 'xterm #t #t #f #t) test-settings test-tags/hash)
   (displayln "HTML\n--------")
   (displayln (xexpr->string/settings test-text test-settings test-tags/hash))
   )

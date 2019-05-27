@@ -728,6 +728,13 @@ EOR
     (define terminal-settings (terminal-support 'ansi #t #t #f #t))
     (define/override (supports-union! . sup)
       (super supports-union! . sup)
+      (update-terminal-settings))
+
+    (define/override (set-support! option [on? #t] #:override [override? #f])
+      (super set-support! option on? #:override override?)
+      (update-terminal-settings))
+    
+    (define (update-terminal-settings)
       (set! terminal-settings
             (terminal-support (cond [(supports? 'true-color) 'true-color]
                                     [(supports? 'xterm) 'xterm]
@@ -782,14 +789,18 @@ EOR
                        (send-negotiate telnet:will telopt)
                        (set-telopt-state-us! ts 'yes)
                        (when tm (send tm on-enable 'local))
+                       (set-support! (constant-name 'telopt telopt))
                        (receive `(enable local ,(constant-name 'telopt telopt))))
                      (send-negotiate telnet:wont telopt))]
            [(yes) (void)]
            [(want-no)
             (when tm (send tm on-disable 'local))
+            (set-support! (constant-name 'telopt telopt) #f)
             (receive `(disable local ,(constant-name 'telopt telopt)))
             (set-telopt-state-us! ts 'no)]
            [(want-no/opposite want-yes)
+            (set-support! (constant-name 'telopt telopt))
+            (set-support! (constant-name 'telopt telopt))
             (receive `(enable local ,(constant-name 'telopt telopt)))
             (set-telopt-state-us! ts 'yes)
             (when tm (send tm on-enable 'local))]
@@ -800,11 +811,13 @@ EOR
            [(yes)
             (set-telopt-state-us! ts 'no)
             (when tm (send tm on-disable 'local))
+            (set-support! (constant-name 'telopt telopt) #f)
             (receive `(disable local ,(constant-name 'telopt telopt)))
             (send-negotiate telnet:wont telopt)]
            [(want-no)
             (set-telopt-state-us! ts 'no)
             (when tm (send tm on-disable 'local))
+            (set-support! (constant-name 'telopt telopt) #f)
             (receive  `(disable local ,(constant-name 'telopt telopt)))]
            [(want-no/opposite)
             (set-telopt-state-us! ts 'want-yes)
@@ -817,6 +830,7 @@ EOR
                      (begin
                        (set-telopt-state-them! ts 'yes)
                        (when tm (send tm on-enable 'remote))
+                       (set-support! (constant-name 'telopt telopt))
                        (receive  `(enable remote ,(constant-name 'telopt telopt)))
                        (send-negotiate telnet:do telopt))
                      (begin
@@ -825,13 +839,16 @@ EOR
            [(want-no)
             (set-telopt-state-them! 'no)
             (when tm (send tm on-disable 'remote))
+            (set-support! (constant-name 'telopt telopt) #f)
             (receive `(disable remote ,(constant-name 'telopt telopt)))]
            [(want-no/opposite)
             (set-telopt-state-them! ts 'yes)
+            (set-support! (constant-name 'telopt telopt))
             (receive `(enable remote ,(constant-name 'telopt telopt)))
             (when tm (send tm on-enable 'remote))]
            [(want-yes)
             (set-telopt-state-them! ts 'yes)
+            (set-support! (constant-name 'telopt telopt))
             (receive `(enable remote ,(constant-name 'telopt telopt)))
             (when tm (send tm on-enable 'remote))]
            [(want-yes/opposite)
@@ -843,10 +860,12 @@ EOR
            [(yes)
             (set-telopt-state-them! ts 'no)
             (when tm (send tm on-disable 'remote))
+            (set-support! (constant-name 'telopt telopt) #f)
             (receive `(disable remote ,(constant-name 'telopt telopt)))
             (send-negotiate telnet:dont telopt)]
            [(want-no)
             (set-telopt-state-them! ts 'no)
+            (set-support! (constant-name 'telopt telopt) #f)
             (receive `(disable remote ,(constant-name 'telopt telopt)))
             (when tm (send tm on-disable 'remote))]
            [(want-no/opposite)
@@ -968,7 +987,11 @@ EOR
         [(? bytes?) (send-bytes (escape-iac-and-cr msg)) #t]
         [(? string?) (send-bytes (escape-iac-and-cr (transcode-output msg))) #t]
         [(list 'text contents ...)
-         (send-bytes (escape-iac-and-cr (transcode-output (xexpr->telnet msg terminal-settings markup-settings)))) #t]
+         (send-bytes (escape-iac-and-cr (transcode-output
+                                         (if (supports? 'mxp)
+                                             (xexpr->mxp msg terminal-settings markup-settings)
+                                             (xexpr->telnet msg terminal-settings markup-settings)))))
+         #t]
         [(list (and telopt (? telopt?)) args ...)
          (send this send-subnegotiate (constant-value 'telopt telopt) #:flush? #t . args) #t]
         [(or #f (? eof-object?)) (on-close) (receive eof) #f]
