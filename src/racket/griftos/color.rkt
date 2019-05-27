@@ -4,19 +4,30 @@
 (provide rgb-table rgb->xterm rgb->ansi xterm->rgb xterm->ansi string->color)
 
 (module+ test
-  (let loop ()
-    (define line (read-line))
-    (unless (eof-object? line)
-      (define col (string->color (string-trim line)))
-      
-      (when col
-        (apply printf "~a\n\e[38;5;~amANSI4\e[38;5;~amANSI3\e[38;5;~amXTERM\e[38;2;~a;~a;~am RGB \e[0m\n"
-               col
-                (first col)
-                (second col)
-                (third col)
-                (fourth col)))
-      (loop))))
+  (require racket/function)
+  #|  (let loop ()
+  (define line (read-line))
+  (unless (eof-object? line)
+  (define col (string->color (string-trim line)))
+  
+  (when col
+  (apply printf "~a\n\e[38;5;~amANSI4\e[38;5;~amANSI3\e[38;5;~amXTERM\e[38;2;~a;~a;~am RGB \e[0m\n"
+  col
+  (first col)
+  (second col)
+  (third col)
+  (fourth col)))
+  (loop)))) |#
+
+  (for ([i (in-range 256)])
+    (apply printf "Color ~a : \e[48;5;~amXTERM\e[48;2;~a;~a;~am RGB \e[0m\n"
+           i
+           i
+           (xterm->rgb i)))
+;  (for ([i (in-list '(16 17 18 19 20 21))])
+;    (printf "~a => ~a\n" i (map (curryr number->string 16) (xterm->rgb i))))
+  )
+           
 
 ;; color format is ANSI, ANSI/DIM, XTERM, RGB
 ;; if RGB is missing, falls back to XTERM.  If XTERM is missing, falls back to ANSI
@@ -117,14 +128,14 @@
        [g (in-range 6)]
        [b (in-range 6)])
   (let ([indx (+ 16 (* r 36) (* g 6) b)]
-        [rv (* 51 r)]
-        [gv (* 51 g)]
-        [bv (* 51 b)])
+        [rv (if (zero? r) r (+ 55 (* 40 r)))]
+        [gv (if (zero? g) g (+ 55 (* 40 g)))]
+        [bv (if (zero? b) b (+ 55 (* 40 b)))])
       (vector-set! color-table indx (list rv gv bv))))
 
 (for ([g (in-range 24)])
   (vector-set! color-table (+ 232 g)
-               (let ([shade (round (* (add1 g) 255/24))])
+               (let ([shade (+ 8 (* g 10))])
                  (list shade shade shade))))
 
 
