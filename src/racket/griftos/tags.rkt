@@ -2,6 +2,7 @@
 
 (require racket/list racket/match racket/string xml "color.rkt")
 
+(provide text-append text?)
 (provide xexpr->telnet xexpr->mxp xexpr->string/settings)
 (provide register-tags g-tag g-tag? mxp-opt mxp-opt? make-mxp-opt get-mxp-elements settings->CSS)
 
@@ -36,6 +37,25 @@ a color scheme is a
 (define (register-tags . lot)
   (for ([tag (in-list lot)])
     (hash-set! tags (g-tag-name tag) tag)))
+
+
+(define (text? v)
+  (and (cons? v)
+       (cons? (cdr v))
+       (eq? (car v) 'text)
+       (null? (cadr v))))
+
+;; '(text    ()     body ...)
+;;        ^cdr   ^cddr
+(define (text-append text1 text2)
+  (if (and (string? text1)
+           (string? text2))
+      (string-append text1 text2)
+      (let ([body1 (if (string? text1) (list text1) (cddr text1))]
+            [body2 (if (string? text2) (list text2) (cddr text2))])
+        `(text () ,@body1 ,@body2))))
+        
+
 
 (struct g-tag (name html-eqv mxp-options params))
 (struct mxp-opt (defn att tag flag open? empty?))
