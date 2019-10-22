@@ -1,8 +1,9 @@
 #lang info
 
 (define collection 'multi)
-(define pkg-name "racket-mud")
+(define pkg-name "rackmud")
 (define pkg-authors '(djholtby))
+(define scribblings '(("rackmud/scribblings/rackmud.scrbl")))
 (define version "0.01")
 (define deps '("base"
                "data-lib"
