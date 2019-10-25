@@ -9,7 +9,6 @@
                "data-lib"
                "db-lib"
                "gregor-lib"
-               "parser-tools-lib"
                "rfc6455"
                "versioned-box"
                "web-server-lib"))
