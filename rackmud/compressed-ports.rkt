@@ -113,7 +113,7 @@
   (define buffer-start 0)           ; inclusive
   (define buffer-end 0) ; exclusive
   (define p (malloc _z_stream 'atomic-interior))
-  (define z (cast (malloc _z_stream 'atomic-interior) _pointer _z_stream-pointer))
+  (define z (cast p _pointer _z_stream-pointer))
   (deflateInit z Z-DEFAULT-COMPRESSION)
   (when remnants
     (set-z_stream-next_in! z (cast (malloc _byte (bytes-length remnants) remnants 'atomic) _pointer _bytes))
