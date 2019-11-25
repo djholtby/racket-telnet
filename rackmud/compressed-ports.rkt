@@ -59,13 +59,14 @@
 
 ;; 
 
-(struct zstream-input-port (port old-port unused-buffer) #:property prop:input-port (struct-field-index port))
+(struct zstream-input-port (port old-port unused-buffer raw-ptr) #:property prop:input-port (struct-field-index port))
 (define (get-zstream-input-port-remains z)
   (unbox (zstream-input-port-unused-buffer z)))
 
 (define (open-zstream-input-port in [buffer-length 1024] #:remnants [remnants #f])
   (define buffer (make-bytes buffer-length 0))
-  (define z (cast (malloc _z_stream 'atomic-interior) _pointer _z_stream-pointer))
+  (define p (malloc _z_stream 'atomic-interior))
+  (define z (cast p _pointer _z_stream-pointer))
   (define eof? #f)
   (define done-box (box #f))
   
@@ -104,13 +105,14 @@
                            (- (bytes-length dest) (z_stream-avail_out z))]
                           [else (wrap-evt in (λ (x) 0))])]))
                    #f
-                   (λ () (inflateEnd z))) in done-box))
-(struct zstream-output-port (port old-port stop) #:property prop:output-port (struct-field-index port))
+                   (λ () (inflateEnd z))) in done-box p))
+(struct zstream-output-port (port old-port stop raw-ptr) #:property prop:output-port (struct-field-index port))
 
 (define (open-zstream-output-port out [buffer-length 1024] #:remnants [remnants #f])
   (define buffer (make-bytes buffer-length 0))
   (define buffer-start 0)           ; inclusive
   (define buffer-end 0) ; exclusive
+  (define p (malloc _z_stream 'atomic-interior))
   (define z (cast (malloc _z_stream 'atomic-interior) _pointer _z_stream-pointer))
   (deflateInit z Z-DEFAULT-COMPRESSION)
   (when remnants
@@ -184,7 +186,8 @@
        (define result (deflate z Z-FINISH))
        (write-bytes buffer out 0 (- buffer-length (z_stream-avail_out z)))
        (when (= result Z-STREAM-OK)
-         (loop))))))
+         (loop))))
+   p))
 
 
 ;; the following test indicates that this code can
