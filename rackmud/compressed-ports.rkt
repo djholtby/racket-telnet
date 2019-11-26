@@ -2,8 +2,8 @@
 (require ffi/unsafe ffi/unsafe/define racket/port racket/file (except-in racket/contract ->) (prefix-in c: (only-in racket/contract ->)))
 
 (provide
- (contract-out (open-zstream-input-port (c:-> input-port? exact-positive-integer? input-port?))
-               (open-zstream-output-port (c:-> output-port? exact-positive-integer? output-port?)))
+ (contract-out (open-zstream-input-port (->* (input-port?) (exact-positive-integer? #:remnants (or/c #f bytes?)) input-port?))
+               (open-zstream-output-port (->* (output-port?) (exact-positive-integer? #:remnants (or/c #f bytes?)) output-port?)))
  zstream-input-port? zstream-output-port? get-zstream-input-port-remains zstream-input-port-old-port zstream-output-port-old-port
  zstream-output-port-stop)
 
@@ -64,22 +64,28 @@
   (unbox (zstream-input-port-unused-buffer z)))
 
 (define (open-zstream-input-port in [buffer-length 1024] #:remnants [remnants #f])
-  (define buffer (make-bytes buffer-length 0))
+  (define buffer/raw (malloc _byte buffer-length 'atomic-interior))
+  (define buffer (cast buffer/raw _pointer (_bytes o buffer-length)))
   (define p (malloc _z_stream 'atomic-interior))
   (define z (cast p _pointer _z_stream-pointer))
+  (define dest-retainer #f)
+  (define rem-ret (if remnants (malloc _byte (bytes-length remnants) remnants 'atomic-interior) #f))
   (define eof? #f)
   (define done-box (box #f))
   
   (set-z_stream-avail_in! z (if remnants (bytes-length remnants) 0))
-  (set-z_stream-next_in! z (if remnants (cast (malloc _byte (bytes-length remnants) remnants 'atomic) _pointer _bytes) #f))
+  (set-z_stream-next_in! z (if remnants (cast rem-ret _pointer _bytes) #f))
   (inflateInit z)
   (zstream-input-port
    (make-input-port 'zstream-input-port
                    (lambda (dest)
-                     (set-z_stream-next_out! z dest)
+                     (set! dest-retainer (malloc _byte (bytes-length dest) 'atomic-interior))
+                     (set-z_stream-next_out! z (cast dest-retainer _pointer (_bytes o (bytes-length dest))))
                      (set-z_stream-avail_out! z (bytes-length dest))
-                     
                      (define code (if (positive? (z_stream-avail_in z)) (inflate z Z-SYNC-FLUSH) Z-STREAM-OK)) 
+                     (unless (negative? code)
+                       (bytes-copy! dest 0 (cast dest-retainer _pointer (_bytes o (bytes-length dest)))
+                                    0 (- (bytes-length dest) (z_stream-avail_out z))))
                      (cond
                        [(negative? code) 
                         (error 'zstream-input-port "zlib:inflate error ~v" code)]
@@ -108,15 +114,17 @@
                    (λ () (inflateEnd z))) in done-box p))
 (struct zstream-output-port (port old-port stop raw-ptr) #:property prop:output-port (struct-field-index port))
 
-(define (open-zstream-output-port out [buffer-length 1024] #:remnants [remnants #f])
-  (define buffer (make-bytes buffer-length 0))
+(define (open-zstream-output-port out [buffer-length 8192] #:remnants [remnants #f])
+  (define buffer/raw (malloc _byte buffer-length 'atomic-interior))
+  (define buffer (cast buffer/raw _pointer (_bytes o buffer-length)))
   (define buffer-start 0)           ; inclusive
   (define buffer-end 0) ; exclusive
+  (define ibuffer/raw (if remnants (malloc _byte (bytes-length remnants) remnants 'atomic-interior) #f))
   (define p (malloc _z_stream 'atomic-interior))
   (define z (cast p _pointer _z_stream-pointer))
   (deflateInit z Z-DEFAULT-COMPRESSION)
   (when remnants
-    (set-z_stream-next_in! z (cast (malloc _byte (bytes-length remnants) remnants 'atomic) _pointer _bytes))
+    (set-z_stream-next_in! z (cast ibuffer/raw _pointer _bytes))
     (set-z_stream-avail_in! z (bytes-length remnants))
     (set-z_stream-next_out! z buffer)
     (set-z_stream-avail_out! z buffer-length)
@@ -146,7 +154,8 @@
                                 (cond [(< amnt (- buffer-length (z_stream-avail_out z)))
                                        #f]  ; renewed deflate buffer, not flushed
                                       [else ; flushed deflate buffer!
-                                       (set-z_stream-next_in! z (cast (malloc _byte (- end start) (ptr-add src start) 'atomic) _pointer _bytes))
+                                       (set! ibuffer/raw (malloc _byte (- end start) (ptr-add src start) 'atomic-interior))
+                                       (set-z_stream-next_in! z (cast ibuffer/raw _pointer (_bytes o (- end start))))
                                        (set-z_stream-avail_in! z (- end start))
                                        (let loop ()
                                          (set-z_stream-next_out! z buffer)
@@ -162,7 +171,8 @@
                         [else
                          (unless (= buffer-start buffer-end)
                            (write-bytes buffer out buffer-start buffer-end))
-                         (set-z_stream-next_in! z (cast (malloc _byte (- end start) (ptr-add src start) 'atomic)  _pointer _bytes))
+                         (set! ibuffer/raw (malloc _byte (- end start) (ptr-add src start) 'atomic-interior))
+                         (set-z_stream-next_in! z (cast ibuffer/raw _pointer (_bytes o (- end start))))
                          (set-z_stream-avail_in! z (- end start))
                          (let loop ()
                            (set-z_stream-next_out! z buffer)
