@@ -33,6 +33,8 @@
 (define Z-FINISH 4)
 (define Z-STREAM-END 1)
 (define Z-STREAM-OK 0)
+
+(define Z-DATA-ERROR -3)
 ;ZLIB-VERSION
 
 
@@ -91,6 +93,8 @@
                        (bytes-copy! dest 0 dest-buffer
                                     0 (- (bytes-length dest) (z_stream-avail_out z))))
                      (cond
+                       [(= code Z-DATA-ERROR)
+                        (error 'zstream-input-port "inflate returned Z_DATA_ERROR, message = ~a" (z_stream-msg z))]
                        [(negative? code) 
                         (error 'zstream-input-port "zlib:inflate error ~v" code)]
                        [(and (= code Z-STREAM-END)
