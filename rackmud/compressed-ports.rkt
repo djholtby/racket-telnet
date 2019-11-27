@@ -3,9 +3,8 @@
 
 (provide
  (contract-out (open-zstream-input-port (->* (input-port?) (exact-positive-integer? #:remnants (or/c #f bytes?)) input-port?))
-               (open-zstream-output-port (->* (output-port?) (exact-positive-integer? #:remnants (or/c #f bytes?)) output-port?)))
- zstream-input-port? zstream-output-port? get-zstream-input-port-remains zstream-input-port-old-port zstream-output-port-old-port
- zstream-output-port-stop)
+               (open-zstream-output-port (->* (output-port?) (exact-positive-integer?) output-port?)))
+ zstream-input-port? zstream-output-port? get-zstream-input-port-remains zstream-input-port-old-port zstream-output-port-old-port)
 
 (define-ffi-definer define-zlib (ffi-lib "libz" '("1.2" "1" #f)))
 
@@ -114,91 +113,54 @@
                           [else (wrap-evt in (λ (x) 0))])]))
                    #f
                    (λ () (inflateEnd z))) in done-box p))
-(struct zstream-output-port (port old-port stop raw-ptr) #:property prop:output-port (struct-field-index port))
+(struct zstream-output-port (port old-port raw-ptr) #:property prop:output-port (struct-field-index port))
 
-(define (open-zstream-output-port out [buffer-length 8192] #:remnants [remnants #f])
+(define (open-zstream-output-port out [buffer-length 8192])
   (define buffer/raw (malloc _byte buffer-length 'atomic-interior))
   (define buffer (cast buffer/raw _pointer (_bytes o buffer-length)))
-  (define buffer-start 0)           ; inclusive
-  (define buffer-end 0) ; exclusive
-  (define ibuffer/raw (if remnants (malloc _byte (bytes-length remnants) remnants 'atomic-interior) #f))
+  (define ibuffer/raw #f)
   (define p (malloc _z_stream 'atomic-interior))
   (define z (cast p _pointer _z_stream-pointer))
   (deflateInit z Z-DEFAULT-COMPRESSION)
-  (when remnants
-    (set-z_stream-next_in! z (cast ibuffer/raw _pointer (_bytes o (bytes-length remnants))))
-    (set-z_stream-avail_in! z (bytes-length remnants))
-    (set-z_stream-next_out! z buffer)
-    (set-z_stream-avail_out! z buffer-length)
-    (deflate z Z-SYNC-FLUSH)
-    (define amnt (write-bytes-avail* buffer out 0 (- buffer-length (z_stream-avail_out z))))
-    (set! buffer-start amnt)
-    (set! buffer-end (- buffer-length (z_stream-avail_out z))))
 
+  (define (write-deflated-bytes src start end)
+    (set! ibuffer/raw (malloc _byte (- end start) (ptr-add src start) 'atomic-interior))
+    (set-z_stream-next_in! z (cast ibuffer/raw _pointer (_bytes o (- end start))))
+    (set-z_stream-avail_in! z (- end start))
+    (let flush-output ()
+      (set-z_stream-next_out! z buffer)
+      (set-z_stream-avail_out! z buffer-length)
+      (deflate z Z-SYNC-FLUSH)
+      (write-bytes buffer out 0 (- buffer-length (z_stream-avail_out z)))
+      (when (positive? (z_stream-avail_in z)) (flush-output)))
+    (set-z_stream-next_in! z #f)
+    (set! ibuffer/raw #f))
+
+  (define (get-write-evt src start end) ; get-write-evt
+    (wrap-evt out
+              (λ () (write-deflated-bytes src start end))))
   
   (zstream-output-port
    (make-output-port 'zstream-output-port
-                    out
-                    (λ (src start end non-blocking? enable-breaks?)
-                      (cond
-                        [non-blocking?
-                         (define leftovers (if (< buffer-start buffer-end)
-                                               (or (write-bytes-avail* buffer out buffer-start buffer-end) 0)
-                                               0))
-                         (set! buffer-start (+ leftovers buffer-start))
-                         (cond [(< buffer-start buffer-end) #f] ; #f deflated buffer not flushed
-                               [else
-                                ;; deflated buffer is flushed, in buffer might not be
-                                (set-z_stream-next_out! z buffer)
-                                (set-z_stream-avail_out! z buffer-length)
-                                (deflate z Z-SYNC-FLUSH)
-                                (define amnt (write-bytes-avail* buffer out 0 (- buffer-length (z_stream-avail_out z))))
-                                (cond [(< amnt (- buffer-length (z_stream-avail_out z)))
-                                       #f]  ; renewed deflate buffer, not flushed
-                                      [else ; flushed deflate buffer!
-                                       (set! ibuffer/raw (malloc _byte (- end start) (ptr-add src start) 'atomic-interior))
-                                       (set-z_stream-next_in! z (cast ibuffer/raw _pointer (_bytes o (- end start))))
-                                       (set-z_stream-avail_in! z (- end start))
-                                       (let loop ()
-                                         (set-z_stream-next_out! z buffer)
-                                         (set-z_stream-avail_out! z buffer-length)
-                                         (deflate z Z-SYNC-FLUSH)
-                                         (define amnt (write-bytes-avail* buffer out 0 (- buffer-length (z_stream-avail_out z))))
-                                         (set! buffer-start amnt)
-                                         (set! buffer-end (- buffer-length (z_stream-avail_out z)))
-                                         (when (and (= amnt (- buffer-length (z_stream-avail_out z)))
-                                                    (positive? (z_stream-avail_in z)))
-                                           (loop)))
-                                       (- end start (z_stream-avail_in z))])])]
-                        [else
-                         (unless (= buffer-start buffer-end)
-                           (write-bytes buffer out buffer-start buffer-end))
-                         (set! ibuffer/raw (malloc _byte (- end start) (ptr-add src start) 'atomic-interior))
-                         (set-z_stream-next_in! z (cast ibuffer/raw _pointer (_bytes o (- end start))))
-                         (set-z_stream-avail_in! z (- end start))
-                         (let loop ()
-                           (set-z_stream-next_out! z buffer)
-                           (set-z_stream-avail_out! z buffer-length)
-                           (deflate z Z-SYNC-FLUSH)
+                    out ; ready event
+                    (λ (src start end non-blocking? enable-breaks?) ; write-out
+                      (if non-blocking? (get-write-evt src start end) (write-deflated-bytes src start end)))
+                    (λ () ; close-port
+                       (let loop ()
+                         (set-z_stream-next_out! z buffer)
+                         (set-z_stream-avail_out! z buffer-length)
+                         (let ([r (deflate z Z-FINISH)])
                            (write-bytes buffer out 0 (- buffer-length (z_stream-avail_out z)))
-                           (when (positive? (z_stream-avail_in z)) (loop)))
-                         (set! buffer-start 0) ; in blocking mode, no leftovers
-                         (set! buffer-end 0)
-                         (set-z_stream-next_in! z #f)
-                         (- end start)]))
-                    (λ () (deflateEnd z)))
+                           (when (= r Z-STREAM-OK) (loop))))
+                      (deflateEnd z)
+                      (set! z #f)
+                      (set! p #f)
+                      (set! buffer #f)
+                      (set! buffer/raw #f)
+                      (set! ibuffer/raw #f))
+                    #f ; write-out-special
+                    get-write-evt)
    out
-   (λ ()
-     ;; if any unflushed bytes
-     (unless (= buffer-start buffer-end)
-       (write-bytes buffer out buffer-start buffer-end))
-     (let loop ()
-       (set-z_stream-next_out! z buffer)
-       (set-z_stream-avail_out! z buffer-length)
-       (define result (deflate z Z-FINISH))
-       (write-bytes buffer out 0 (- buffer-length (z_stream-avail_out z)))
-       (when (= result Z-STREAM-OK)
-         (loop))))
    p))
 
 

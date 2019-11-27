@@ -695,7 +695,6 @@ EOR
     (define/public (stop-compress-output!)
       (if (zstream-output-port? out)
           (begin
-            ((zstream-output-port-stop out))
             (close-output-port out)
             (set! out (zstream-output-port-old-port out)))
           (log-warning "output compression not currently active")))
