@@ -83,7 +83,10 @@
                      (set! dest-buffer (cast dest-retainer _pointer (_bytes o (bytes-length dest))))
                      (set-z_stream-next_out! z dest-buffer)
                      (set-z_stream-avail_out! z (bytes-length dest))
-                     (define code (if (positive? (z_stream-avail_in z)) (inflate z Z-SYNC-FLUSH) Z-STREAM-OK)) 
+                     (define code
+                       (cond [eof? Z-STREAM-END]
+                             [(positive? (z_stream-avail_in z)) (inflate z Z-SYNC-FLUSH)]
+                             [else Z-STREAM-OK]))
                      (unless (negative? code)
                        (bytes-copy! dest 0 dest-buffer
                                     0 (- (bytes-length dest) (z_stream-avail_out z))))
@@ -95,6 +98,7 @@
                         (- (bytes-length dest) (z_stream-avail_out z))]
                        [(= code Z-STREAM-END)
                         (set-box! done-box (subbytes (z_stream-next_in z) 0 (z_stream-avail_in z)))
+                        (set! eof? #t)
                         eof]
                        [(zero? (z_stream-avail_out z))
                         ; dest has been filled, but input buffer not exhausted yet.
@@ -106,11 +110,11 @@
                         (cond
                           [(eof-object? amnt) (set! eof? #t) (- (bytes-length dest) (z_stream-avail_out z))]
                           [(procedure? amnt) (error 'zstream-input-port:read "unexpected special value")]
-                          [(positive? amnt)
+                          [else
                            (set-z_stream-next_in! z buffer)
                            (set-z_stream-avail_in! z amnt)
                            (- (bytes-length dest) (z_stream-avail_out z))]
-                          [else (wrap-evt in (λ (x) 0))])]))
+                          )]))
                    #f
                    (λ () (inflateEnd z))) in done-box p))
 (struct zstream-output-port (port old-port raw-ptr) #:property prop:output-port (struct-field-index port))
