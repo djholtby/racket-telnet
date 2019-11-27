@@ -69,6 +69,7 @@
   (define p (malloc _z_stream 'atomic-interior))
   (define z (cast p _pointer _z_stream-pointer))
   (define dest-retainer #f)
+  (define dest-buffer #f)
   (define rem-ret (if remnants (malloc _byte (bytes-length remnants) remnants 'atomic-interior) #f))
   (define eof? #f)
   (define done-box (box #f))
@@ -80,11 +81,12 @@
    (make-input-port 'zstream-input-port
                    (lambda (dest)
                      (set! dest-retainer (malloc _byte (bytes-length dest) 'atomic-interior))
-                     (set-z_stream-next_out! z (cast dest-retainer _pointer (_bytes o (bytes-length dest))))
+                     (set! dest-buffer (cast dest-retainer _pointer (_bytes o (bytes-length dest))))
+                     (set-z_stream-next_out! z dest-buffer)
                      (set-z_stream-avail_out! z (bytes-length dest))
                      (define code (if (positive? (z_stream-avail_in z)) (inflate z Z-SYNC-FLUSH) Z-STREAM-OK)) 
                      (unless (negative? code)
-                       (bytes-copy! dest 0 (cast dest-retainer _pointer (_bytes o (bytes-length dest)))
+                       (bytes-copy! dest 0 dest-buffer
                                     0 (- (bytes-length dest) (z_stream-avail_out z))))
                      (cond
                        [(negative? code) 
@@ -124,7 +126,7 @@
   (define z (cast p _pointer _z_stream-pointer))
   (deflateInit z Z-DEFAULT-COMPRESSION)
   (when remnants
-    (set-z_stream-next_in! z (cast ibuffer/raw _pointer _bytes))
+    (set-z_stream-next_in! z (cast ibuffer/raw _pointer (_bytes o (bytes-length remnants))))
     (set-z_stream-avail_in! z (bytes-length remnants))
     (set-z_stream-next_out! z buffer)
     (set-z_stream-avail_out! z buffer-length)
