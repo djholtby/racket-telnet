@@ -127,14 +127,16 @@
     (set! ibuffer/raw (malloc _byte (- end start) (ptr-add src start) 'atomic-interior))
     (set-z_stream-next_in! z (cast ibuffer/raw _pointer (_bytes o (- end start))))
     (set-z_stream-avail_in! z (- end start))
-    (let flush-output ()
+    (let loop ()
       (set-z_stream-next_out! z buffer)
       (set-z_stream-avail_out! z buffer-length)
       (deflate z Z-SYNC-FLUSH)
       (write-bytes buffer out 0 (- buffer-length (z_stream-avail_out z)))
-      (when (positive? (z_stream-avail_in z)) (flush-output)))
+      (when (positive? (z_stream-avail_in z)) (loop)))
+    (flush-output out)
     (set-z_stream-next_in! z #f)
-    (set! ibuffer/raw #f))
+    (set! ibuffer/raw #f)
+    (- end start))
 
   (define (get-write-evt src start end) ; get-write-evt
     (wrap-evt out
