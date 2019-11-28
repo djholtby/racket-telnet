@@ -93,6 +93,8 @@
                       (error 'zstream-input-port "zlib:inflate error ~v" code)]
                      [(and (= code Z-STREAM-END)
                            (> (bytes-length dest) (z_stream-avail_out z)))
+                      (set-box! done-box (subbytes (z_stream-next_in z) 0 (z_stream-avail_in z)))
+                      (set! eof? #t)
                       (- (bytes-length dest) (z_stream-avail_out z))]
                      [(= code Z-STREAM-END)
                       (set-box! done-box (subbytes (z_stream-next_in z) 0 (z_stream-avail_in z)))
