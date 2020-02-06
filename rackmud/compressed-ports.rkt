@@ -111,6 +111,9 @@
                           [(eof-object? amnt)
                            (set! eof? #t) (- (bytes-length dest) (z_stream-avail_out z))]
                           [(procedure? amnt) (error 'zstream-input-port:read "unexpected special value")]
+                          [(and (zero? amnt)
+                                (= (bytes-length dest) (z_stream-avail_out z)))
+                           (wrap-evt in (λ () 0))]
                           [(zero? amnt) (- (bytes-length dest) (z_stream-avail_out z))]
                           [else
                            (set-z_stream-next_in! z buffer)
@@ -127,7 +130,8 @@
    (make-input-port 'zstream-input-port
                    read-in
                    #f
-                   (λ () (inflateEnd z))) in done-box p))
+                   (λ () (when (z_stream-next_in z) (set-box! done-box (subbytes (z_stream-next_in z) 0 (z_stream-avail_in z))))
+                     (inflateEnd z))) in done-box p))
 (struct zstream-output-port (port old-port raw-ptr) #:property prop:output-port (struct-field-index port))
 
 (define (open-zstream-output-port out [buffer-length 8192])
