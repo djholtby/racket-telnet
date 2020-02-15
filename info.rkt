@@ -1,16 +1,9 @@
 #lang info
 
-(define collection 'multi)
-(define pkg-name "rackmud")
+(define collection 'telnet)
+(define pkg-name "telnet")
 (define pkg-authors '(djholtby))
-(define version "0.01")
-(define deps '("uuid"
-               "base"
-               "data-lib"
-               "db-lib"
-               "gregor-lib"
-               "rfc6455"
-               "versioned-box"
-               "web-server-lib"))
+(define version "1.00")
+(define deps '("base"))
 (define build-deps '("racket-doc"
                      "scribble-lib"))
