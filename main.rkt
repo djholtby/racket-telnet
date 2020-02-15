@@ -1,7 +1,7 @@
 #lang racket/base
 
 (require racket/class racket/port racket/bytes racket/list racket/match racket/string racket/set json defconst)
-(require "tags.rkt" "connection.rkt" "compressed-ports.rkt" "charset.rkt" "transcode.rkt")
+(require "connection.rkt" "compressed-ports.rkt" "charset.rkt" "mxp.rkt" "transcode.rkt")
 
 ;; todo: split each manager into its own module?
 ;; idiosynchratic racket style is to jam everything into a monolithic file ;)

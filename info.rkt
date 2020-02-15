@@ -1,6 +1,5 @@
 #lang info
-
-(define collection 'telnet)
+(define collection "telnet")
 (define pkg-name "telnet")
 (define pkg-authors '(djholtby))
 (define version "1.00")
