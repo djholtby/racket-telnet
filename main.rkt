@@ -1,6 +1,6 @@
 #lang racket/base
 
-(require racket/class racket/port racket/bytes racket/list racket/match racket/string racket/set json defconst)
+(require racket/class racket/port racket/bytes racket/list racket/match racket/string racket/set json)
 (require "connection.rkt" "compressed-ports.rkt" "charset.rkt" "mxp.rkt" "transcode.rkt")
 
 ;; todo: split each manager into its own module?
@@ -10,128 +10,331 @@
          naws-manager% ttype-manager% charset-manager% mssp-manager%
          encodings->charset-req-sequence) 
 
-(define-constants telnet #:provide
-  [iac 255]
-  [dont 254]
-  [do 253]
-  [wont 252]
-  [will 251]
-  [sb 250]
-  [ga 249]
-  [el 248]
-  [ec 247]
-  [ayt 246]
-  [ao 245]
-  [ip 244]
-  [break 243]
-  [dm 242]
-  [nop 241]
-  [se 240]
-  [eor 239]
-  [abort 238]
-  [susp 237]
-  [eof 236])
+(provide telnet:eof telnet:susp telnet:abort telnet:eor telnet:se telnet:nop telnet:dm telnet:break telnet:ip telnet:ao telnet:ayt telnet:ec telnet:el telnet:ga telnet:sb telnet:will telnet:wont telnet:do telnet:dont telnet:iac)
+(provide telopt:msdp telopt:gmcp telopt:mxp telopt:charset telopt:exopl telopt:zmp telopt:compress2 telopt:mccp2 telopt:compress telopt:mccp telopt:mssp telopt:starttls telopt:new-environ telopt:encrypt telopt:authentication
+         telopt:environ telopt:xdisploc telopt:linemode telopt:lflow telopt:tspeed telopt:naws telopt:x3-pad telopt:3270regime telopt:ttyloc telopt:outmrk telopt:eor telopt:ttype telopt:sndloc telopt:supdupoutput telopt:supdup
+         telopt:def telopt:bm telopt:logout telopt:xascii telopt:naoffd telopt:naohtd telopt:naohts telopt:naocrd telopt:naop telopt:naol telopt:rcte telopt:tm telopt:status telopt:nams telopt:sga telopt:rcp telopt:echo telopt:binary)
 
-(define (byte->cmd b)
-  (or (constant-name 'telnet b) 'invalid))
+(define telnet:eof 236)
+(define telnet:susp 237)
+(define telnet:abort 238)
+(define telnet:eor 239)
+(define telnet:se 240)
+(define telnet:nop 241)
+(define telnet:dm 242)
+(define telnet:break 243)
+(define telnet:ip 244)
+(define telnet:ao 245)
+(define telnet:ayt 246)
+(define telnet:ec 247)
+(define telnet:el 248)
+(define telnet:ga 249)
+(define telnet:sb 250)
+(define telnet:will 251)
+(define telnet:wont 252)
+(define telnet:do 253)
+(define telnet:dont 254)
+(define telnet:iac 255)
 
-(define (cmd->byte s)
-  (constant-value 'telnet s))
+(define telnet-cmd-lookup-table
+  (hasheq 'abort telnet:abort
+          'ao telnet:ao
+          'ayt telnet:ayt
+          'break telnet:break
+          'dm telnet:dm
+          'do telnet:do
+          'dont telnet:dont
+          'ec telnet:ec
+          'el telnet:el
+          'eof telnet:eof
+          'eor telnet:eor
+          'ga telnet:ga
+          'iac telnet:iac
+          'ip telnet:ip
+          'nop telnet:nop
+          'sb telnet:sb
+          'se telnet:se
+          'susp telnet:susp
+          'will telnet:will
+          'wont telnet:wont))
+  
 
-;; Telopt codes
-(define-constants telopt #:provide #:define-alias
-  [binary 0]
-  [echo 1]
-  [rcp 2]
-  [sga 3]
-  [nams 4]
-  [status 5]
-  [tm 6]
-  [rcte 7]
-  [naol 8]
-  [naop 9]
-  [naocrd 10]
-  [naohts 11]
-  [naohtd 12]
-  [naoffd 13]
-  [xascii 17]
-  [logout 18]
-  [bm 19]
-  [def 20]
-  [supdup 21]
-  [supdupoutput 22]
-  [sndloc 23]
-  [ttype 24]
-  [eor 25]
-  [outmrk 27]
-  [ttyloc 28]
-  [3270regime 29]
-  [x3-pad 30]
-  [naws 31]
-  [tspeed 32]
-  [lflow 33]
-  [linemode 34]
-  [xdisploc 35]
-  [environ 36]
-  [authentication 37]
-  [encrypt 38]
-  [new-environ 39]
-  [starttls 46]
-  [mssp 70]
-  [compress mccp 85]
-  [compress2 mccp2 86]
-  [zmp 93]
-  [exopl 255]
-  [charset 42]
-  [mxp 91]
-  [gmcp 201]
-  [msdp 69])
-          
+(define (telnet->byte sym)
+  (hash-ref telnet-cmd-lookup-table sym))
+
+(define telnet-cmd-reverse-lookup-table
+  (hasheqv telnet:eof 'eof
+           telnet:susp 'susp
+           telnet:abort 'abort
+           telnet:eor 'eor
+           telnet:se 'se
+           telnet:nop 'nop
+           telnet:dm 'dm
+           telnet:break 'break
+           telnet:ip 'ip
+           telnet:ao 'ao
+           telnet:ayt 'ayt
+           telnet:ec 'ec
+           telnet:el 'el
+           telnet:ga 'ga
+           telnet:sb 'sb
+           telnet:will 'will
+           telnet:wont 'wont
+           telnet:do 'do
+           telnet:dont 'dont
+           telnet:iac 'iac))
+  
+
+(define (byte->telnet b)
+  (hash-ref telnet-cmd-reverse-lookup-table b))
+            
+(define telopt:msdp 69)
+(define telopt:gmcp 201)
+(define telopt:mxp 91)
+(define telopt:charset 42)
+(define telopt:exopl 255)
+(define telopt:zmp 93)
+(define telopt:compress2 86)
+(define telopt:mccp2 86)
+(define telopt:compress 85)
+(define telopt:mccp 85)
+(define telopt:mssp 70)
+(define telopt:starttls 46)
+(define telopt:new-environ 39)
+(define telopt:encrypt 38)
+(define telopt:authentication 37)
+(define telopt:environ 36)
+(define telopt:xdisploc 35)
+(define telopt:linemode 34)
+(define telopt:lflow 33)
+(define telopt:tspeed 32)
+(define telopt:naws 31)
+(define telopt:x3-pad 30)
+(define telopt:3270regime 29)
+(define telopt:ttyloc 28)
+(define telopt:outmrk 27)
+(define telopt:eor 25)
+(define telopt:ttype 24)
+(define telopt:sndloc 23)
+(define telopt:supdupoutput 22)
+(define telopt:supdup 21)
+(define telopt:def 20)
+(define telopt:bm 19)
+(define telopt:logout 18)
+(define telopt:xascii 17)
+(define telopt:naoffd 13)
+(define telopt:naohtd 12)
+(define telopt:naohts 11)
+(define telopt:naocrd 10)
+(define telopt:naop 9)
+(define telopt:naol 8)
+(define telopt:rcte 7)
+(define telopt:tm 6)
+(define telopt:status 5)
+(define telopt:nams 4)
+(define telopt:sga 3)
+(define telopt:rcp 2)
+(define telopt:echo 1)
+(define telopt:binary 0)
+
+
+(define telopt-name-lookup-table
+  (hasheqv    telopt:msdp 'msdp
+              telopt:gmcp   'gmcp
+              telopt:mxp   'mxp
+              telopt:charset   'charset
+              telopt:exopl   'exopl
+              telopt:zmp    'zmp
+              telopt:mccp2    'mccp2
+              telopt:mccp    'mccp
+              telopt:mssp    'mssp
+              telopt:starttls   'starttls
+              telopt:new-environ   'new-environ
+              telopt:encrypt 'encrypt
+              telopt:authentication    'authentication
+              telopt:environ    'environ
+              telopt:xdisploc    'xdisploc
+              telopt:linemode 'linemode
+              telopt:lflow   'lflow
+              telopt:tspeed   'tspeed
+              telopt:naws   'naws
+              telopt:x3-pad   'x3-pad
+              telopt:3270regime   '3270regime
+              telopt:ttyloc   'ttyloc
+              telopt:outmrk   'outmrk
+              telopt:eor   'eor
+              telopt:ttype   'ttype
+              telopt:sndloc   'sndloc
+              telopt:supdupoutput   'supdupoutput
+              telopt:supdup   'supdup
+              telopt:def   'def
+              telopt:bm   'bm
+              telopt:logout   'logout
+              telopt:xascii   'xascii
+              telopt:naoffd   'naoffd
+              telopt:naohtd   'naohtd
+              telopt:naohts   'naohts
+              telopt:naocrd   'naocrd
+              telopt:naop   'naop
+              telopt:naol   'naol
+              telopt:rcte   'rcte
+              telopt:tm   'tm
+              telopt:status   'status
+              telopt:nams   'nams
+              telopt:sga   'sga
+              telopt:rcp   'rcp
+              telopt:echo   'echo
+              telopt:binary   'binary))
+ 
+(define (byte->telopt b)
+  (hash-ref telopt-name-lookup-table b))
+
+
+
+(define telopt-value-lookup-table
+  (hasheq    'msdp telopt:msdp
+             'gmcp telopt:gmcp
+             'mxp telopt:mxp
+             'charset telopt:charset
+             'exopl telopt:exopl
+             'zmp telopt:zmp
+             'mccp2 telopt:mccp2
+             'compress2 telopt:compress2
+             'mccp telopt:mccp
+             'compress telopt:compress
+             'mssp telopt:mssp
+             'starttls telopt:starttls
+             'new-environ telopt:new-environ
+             'encrypt telopt:encrypt
+             'authentication telopt:authentication
+             'environ telopt:environ
+             'xdisploc telopt:xdisploc
+             'linemode telopt:linemode
+             'lflow telopt:lflow
+             'tspeed telopt:tspeed
+             'naws telopt:naws
+             'x3-pad telopt:x3-pad
+             '3270regime telopt:3270regime
+             'ttyloc telopt:ttyloc
+             'outmrk telopt:outmrk
+             'eor telopt:eor
+             'ttype telopt:ttype
+             'sndloc telopt:sndloc
+             'supdupoutput telopt:supdupoutput
+             'supdup telopt:supdup
+             'def telopt:def
+             'bm telopt:bm
+             'logout telopt:logout
+             'xascii telopt:xascii
+             'naoffd telopt:naoffd
+             'naohtd telopt:naohtd
+             'naohts telopt:naohts
+             'naocrd telopt:naocrd
+             'naop telopt:naop
+             'naol telopt:naol
+             'rcte telopt:rcte
+             'tm telopt:tm
+             'status telopt:status
+             'nams telopt:nams
+             'sga telopt:sga
+             'rcp telopt:rcp
+             'echo telopt:echo
+             'binary telopt:binary))
+
+(define (telopt->byte to)
+  (hash-ref telopt-value-lookup-table to))
+
+#|
+  (define-constants telopt #:provide #:define-alias
+       [binary 0]
+       [echo 1]
+       [rcp 2]
+       [sga 3]
+       [nams 4]
+       [status 5]
+       [tm 6]
+       [rcte 7]
+       [naol 8]
+       [naop 9]
+       [naocrd 10]
+       [naohts 11]
+       [naohtd 12]
+       [naoffd 13]
+       [xascii 17]
+       [logout 18]
+       [bm 19]
+       [def 20]
+       [supdup 21]
+       [supdupoutput 22]
+       [sndloc 23]
+       [ttype 24]
+       [eor 25]
+       [outmrk 27]
+       [ttyloc 28]
+       [3270regime 29]
+       [x3-pad 30]
+       [naws 31]
+       [tspeed 32]
+       [lflow 33]
+       [linemode 34]
+       [xdisploc 35]
+       [environ 36]
+       [authentication 37]
+       [encrypt 38]
+       [new-environ 39]
+       [starttls 46]
+       [mssp 70]
+       [compress mccp 85]
+       [compress2 mccp2 86]
+       [zmp 93]
+       [exopl 255]
+       [charset 42]
+       [mxp 91]
+       [gmcp 201]
+       [msdp 69])
+ |# 
+
+
 (define telopt-list
-  (apply seteq (get-constant-names 'telopt)))
+  (seteq 'msdp 'gmcp 'mxp 'charset 'exopl 'zmp 'compress2 'mccp2 'compress 'mccp 'mssp 'starttls 'new-environ 'encrypt 'authentication 'environ 'xdisploc 'linemode 'lflow 'tspeed
+         'naws 'x3-pad '3270regime 'ttyloc 'outmrk 'eor 'ttype 'sndloc 'supdupoutput 'supdup 'def 'bm 'logout 'xascii 'naoffd 'naohtd 'naohts 'naocrd 'naop 'naol 'rcte 'tm
+         'status 'nams 'sga 'rcp 'echo 'binary))
 
 (define (telopt? sym)
   (set-member? telopt-list sym))
 
 ; Protocol specific bytes
 
-(define-constants ttype
-  [is 0]
-  [send 1])
+(define ttype:send 1)
+(define ttype:is 0)
 
-(define-constants charset
-  [request 1]
-  [accepted 2]
-  [rejected 3]
-  [ttable-is 4]
-  [ttable-rejected 5]
-  [ttable-ack 6]
-  [ttable-nak 7])
+(define charset:ttable-nak 7)
+(define charset:ttable-ack 6)
+(define charset:ttable-rejected 5)
+(define charset:ttable-is 4)
+(define charset:rejected 3)
+(define charset:accepted 2)
+(define charset:request 1)
 
+(define environ-command:info 2)
+(define environ-command:send 1)
+(define environ-command:is 0)
 
-(define-constants environ-command
-  [is 0]
-  [send 1]
-  [info 2])
+(define environ-value:uservar 3)
+(define environ-value:esc 2)
+(define environ-value:value 1)
+(define environ-value:var 0)
 
-(define-constants environ-value
-  [var 0]
-  [value 1]
-  [esc 2]
-  [uservar 3])
+(define msdp:array-close 6)
+(define msdp:array-open 5)
+(define msdp:table-close 4)
+(define msdp:table-open 3)
+(define msdp:val 2)
+(define msdp:var 1)
 
-(define-constants mssp
-  [var 1]
-  [val 2])
+(define mssp:var 1)
+(define mssp:val 2) 
 
-
-(define-constants msdp
-  [var 1]
-  [val 2]
-  [table-open 3]
-  [table-close 4]
-  [array-open 5]
-  [array-close 6])
 
 #|
 (define FLAG-PROXY 1)
@@ -180,7 +383,7 @@
 
     (define/public (set-telopt telopt)
       (set! to telopt)
-      (set! telopt-name (constant-name 'telopt telopt)))
+      (set! telopt-name (byte->telopt telopt)))
 
     (define/public (telopt/byte) to)
     (define/public (telopt/symbol) telopt-name) 
@@ -563,7 +766,7 @@ EOR
 ;; A Telopt-State (TS) is a (telopt-state Bool Bool TQ TQ)
 
 (define (set-telopt-settings! tab telopt allow-local? allow-remote? us them)
-  (hash-set! tab (if (byte? telopt) telopt (constant-value 'telopt telopt))
+  (hash-set! tab (if (byte? telopt) telopt (telopt->byte telopt))
              (telopt-state allow-local? allow-remote? us them)))
 
 (define (list->telopt-settings lots)
@@ -681,7 +884,7 @@ EOR
       (if (zstream-input-port? in)
           (log-warning "compression already enabled")
           (if (wrapped-input-port? in)
-              (set! in (open-zstream-input-port (wrapped-input-port-old-port in) bs #:remnant (port->bytes in)))
+              (set! in (open-zstream-input-port (wrapped-input-port-old-port in) bs #:remnants (port->bytes in)))
               (set! in (open-zstream-input-port in bs)))))
 
     (define/public (start-compress-output!)
@@ -788,19 +991,19 @@ EOR
                        (send-negotiate telnet:will telopt)
                        (set-telopt-state-us! ts 'yes)
                        (when tm (send tm on-enable 'local))
-                       (set-support! (constant-name 'telopt telopt))
-                       (receive `(enable local ,(constant-name 'telopt telopt))))
+                       (set-support! (byte->telopt telopt))
+                       (receive `(enable local ,(byte->telopt telopt))))
                      (send-negotiate telnet:wont telopt))]
            [(yes) (void)]
            [(want-no)
             (when tm (send tm on-disable 'local))
-            (set-support! (constant-name 'telopt telopt) #f)
-            (receive `(disable local ,(constant-name 'telopt telopt)))
+            (set-support! (byte->telopt telopt) #f)
+            (receive `(disable local ,(byte->telopt telopt)))
             (set-telopt-state-us! ts 'no)]
            [(want-no/opposite want-yes)
-            (set-support! (constant-name 'telopt telopt))
-            (set-support! (constant-name 'telopt telopt))
-            (receive `(enable local ,(constant-name 'telopt telopt)))
+            (set-support! (byte->telopt telopt))
+            (set-support! (byte->telopt telopt))
+            (receive `(enable local ,(byte->telopt telopt)))
             (set-telopt-state-us! ts 'yes)
             (when tm (send tm on-enable 'local))]
            [(want-yes/opposite) (set-telopt-state-us! ts 'want-no) (send-negotiate telnet:wont telopt)])]
@@ -810,14 +1013,14 @@ EOR
            [(yes)
             (set-telopt-state-us! ts 'no)
             (when tm (send tm on-disable 'local))
-            (set-support! (constant-name 'telopt telopt) #f)
-            (receive `(disable local ,(constant-name 'telopt telopt)))
+            (set-support! (byte->telopt telopt) #f)
+            (receive `(disable local ,(byte->telopt telopt)))
             (send-negotiate telnet:wont telopt)]
            [(want-no)
             (set-telopt-state-us! ts 'no)
             (when tm (send tm on-disable 'local))
-            (set-support! (constant-name 'telopt telopt) #f)
-            (receive  `(disable local ,(constant-name 'telopt telopt)))]
+            (set-support! (byte->telopt telopt) #f)
+            (receive  `(disable local ,(byte->telopt telopt)))]
            [(want-no/opposite)
             (set-telopt-state-us! ts 'want-yes)
             (send-negotiate telnet:will telopt)]
@@ -829,8 +1032,8 @@ EOR
                      (begin
                        (set-telopt-state-them! ts 'yes)
                        (when tm (send tm on-enable 'remote))
-                       (set-support! (constant-name 'telopt telopt))
-                       (receive  `(enable remote ,(constant-name 'telopt telopt)))
+                       (set-support! (byte->telopt telopt))
+                       (receive  `(enable remote ,(byte->telopt telopt)))
                        (send-negotiate telnet:do telopt))
                      (begin
                        (send-negotiate telnet:dont telopt)))]
@@ -838,17 +1041,17 @@ EOR
            [(want-no)
             (set-telopt-state-them! 'no)
             (when tm (send tm on-disable 'remote))
-            (set-support! (constant-name 'telopt telopt) #f)
-            (receive `(disable remote ,(constant-name 'telopt telopt)))]
+            (set-support! (byte->telopt telopt) #f)
+            (receive `(disable remote ,(byte->telopt telopt)))]
            [(want-no/opposite)
             (set-telopt-state-them! ts 'yes)
-            (set-support! (constant-name 'telopt telopt))
-            (receive `(enable remote ,(constant-name 'telopt telopt)))
+            (set-support! (byte->telopt telopt))
+            (receive `(enable remote ,(byte->telopt telopt)))
             (when tm (send tm on-enable 'remote))]
            [(want-yes)
             (set-telopt-state-them! ts 'yes)
-            (set-support! (constant-name 'telopt telopt))
-            (receive `(enable remote ,(constant-name 'telopt telopt)))
+            (set-support! (byte->telopt telopt))
+            (receive `(enable remote ,(byte->telopt telopt)))
             (when tm (send tm on-enable 'remote))]
            [(want-yes/opposite)
             (set-telopt-state-them! ts 'want-no)
@@ -859,13 +1062,13 @@ EOR
            [(yes)
             (set-telopt-state-them! ts 'no)
             (when tm (send tm on-disable 'remote))
-            (set-support! (constant-name 'telopt telopt) #f)
-            (receive `(disable remote ,(constant-name 'telopt telopt)))
+            (set-support! (byte->telopt telopt) #f)
+            (receive `(disable remote ,(byte->telopt telopt)))
             (send-negotiate telnet:dont telopt)]
            [(want-no)
             (set-telopt-state-them! ts 'no)
-            (set-support! (constant-name 'telopt telopt) #f)
-            (receive `(disable remote ,(constant-name 'telopt telopt)))
+            (set-support! (byte->telopt telopt) #f)
+            (receive `(disable remote ,(byte->telopt telopt)))
             (when tm (send tm on-disable 'remote))]
            [(want-no/opposite)
             (set-telopt-state-them! ts 'want-yes)
@@ -875,11 +1078,9 @@ EOR
   
     (define (send-negotiate neg telopt #:flush? [flush? #t])
       (define neg-byte (if (byte? neg) neg
-                           (constant-value 'telnet neg)))
+                           (telnet->byte neg)))
       (define telopt-byte (if (byte? telopt) telopt
-                              (constant-value 'telopt telopt)))
-;      (displayln (format "Sending negotiate sequence ~a ~a" (constant-name 'telnet neg-byte) (constant-name 'telopt telopt-byte))
-;                 (current-error-port))
+                              (telopt->byte telopt)))
       (if (and neg-byte telopt-byte)
           (send-bytes telnet:iac neg-byte telopt-byte #:flush? flush?)
           (error 'telnet:send-negotiate "invalid negotiate sequence ~v ~v" neg telopt)))
@@ -957,7 +1158,6 @@ EOR
                  [bmsg (escape-iac (if (and (not raw?) manager)
                                        (send manager send-subneg . args)
                                        (first args)))])
-            ;(displayln (format "send subnegotiate ~a (~a) - ~v (bytes=~v)" telopt (constant-name 'telopt telopt) args bmsg))
             (send-bytes
              telnet:iac
              telnet:sb
@@ -967,9 +1167,9 @@ EOR
              telnet:se
              #:flush? flush?))
           (begin
-            (displayln (format "cannot subnegotiate with disabled telopt ~a (~a) ~a" telopt (constant-name 'telopt telopt) args) (current-error-port))
+            (displayln (format "cannot subnegotiate with disabled telopt ~a (~a) ~a" telopt (byte->telopt telopt) args) (current-error-port))
             (log-warning 'telnet:send-subnegotiate
-                         (format "attempt to subnegotiate with disabled protocol ~a (~a)" telopt (constant-name 'telopt telopt))))))
+                         (format "attempt to subnegotiate with disabled protocol ~a (~a)" telopt (byte->telopt telopt))))))
 
 
     
@@ -979,7 +1179,7 @@ EOR
       (if manager
           (let ([msg (send manager receive-subneg bytes)])
             (when msg (receive msg)))
-          (receive (list (constant-name 'telopt telopt) bytes))))
+          (receive (list (byte->telopt telopt) bytes))))
 
     (define (send-message msg)
       (match msg
@@ -992,7 +1192,7 @@ EOR
                                              (xexpr->telnet msg terminal-settings markup-settings)))))
          #t]
         [(list (and telopt (? telopt?)) args ...)
-         (send this send-subnegotiate (constant-value 'telopt telopt) #:flush? #t . args) #t]
+         (send this send-subnegotiate (telopt->byte telopt) #:flush? #t . args) #t]
         [(or #f (? eof-object?)) (on-close) (receive eof) #f]
         ['echo
          (disable-telopt telopt:echo 'local) #t]
@@ -1004,6 +1204,8 @@ EOR
             (send-bytes telnet:iac telnet:eor)]
            [(telopt-disabled? telopt:sga)
             (send-bytes telnet:iac telnet:ga)]) #t]
+        ['nop
+         (send-bytes telnet:iac telnet:nop)]
         ; todo - other iac commands?
         [else (log-warning (format "msg not handled yet ~v" msg)) #t]))
 
@@ -1037,7 +1239,7 @@ EOR
                        (case state
                          [(data) (if (= b telnet:iac) (set! state 'iac) (accumulate b))]
                          [(iac)
-                          (define c (byte->cmd b))
+                          (define c (byte->telnet b))
                           (case c
                             [(sb will wont do dont) (set! state c)]
                             [(iac) (set! state 'data) (accumulate b)]

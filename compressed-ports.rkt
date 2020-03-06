@@ -3,7 +3,8 @@
 
 (provide
  (contract-out (open-zstream-input-port (->* (input-port?) (exact-positive-integer? #:remnants (or/c #f bytes?)) input-port?))
-               (open-zstream-output-port (->* (output-port?) (exact-positive-integer?) output-port?)))
+                (open-zstream-output-port (->* (output-port?) (exact-positive-integer?) output-port?)))
+ ;open-zstream-input-port open-zstream-output-port
  zstream-input-port? zstream-output-port? get-zstream-input-port-remains zstream-input-port-old-port zstream-output-port-old-port)
 
 (define-ffi-definer define-zlib (ffi-lib "libz" '("1.2" "1" #f)))
