@@ -599,8 +599,8 @@
     (define/override (receive-subneg bs)
       (define width (integer-bytes->integer bs #f #t 0 2))
       (define height (integer-bytes->integer bs #f #t 2 4))
-        (send owner set-dimensions! width height)
-        (list 'naws width height))
+      (send owner set-dimensions! width height)
+      (list 'naws width height))
 
     (define/override (send-subneg width height)
       (define resp (make-bytes 4))
@@ -638,7 +638,7 @@
             #f)
           (let ([terminal-name (bytes->string/utf-8 bs #\? 1)])
             (if (or (null? remote-types)
-                     (not (string=? (first remote-types) terminal-name)))
+                    (not (string=? (first remote-types) terminal-name)))
                 (begin
                   (set! remote-types (cons terminal-name remote-types))
                   (send owner send-subnegotiate telopt:ttype ttype:send #:raw? #t)
@@ -800,11 +800,11 @@ EOR
          (make-hasheqv) loom))
 
 (define (try-close-input-port port)
-  (with-handlers ([exn? (λ (e) (void))])
+  (with-handlers ([exn? (λ (e) (eprintf "try-close-input-port ~a: ~v\n" port e))])
     (close-input-port port)))
 
 (define (try-close-output-port port)
-  (with-handlers ([exn? (λ (e) (void))])
+  (with-handlers ([exn? (λ (e) (eprintf "try-close-output-port ~a: ~v\n" port e))])
     (close-output-port port)))
 
 (define telnet-conn%
@@ -902,7 +902,7 @@ EOR
             (set! out (zstream-output-port-old-port out)))
           (log-warning "output compression not currently active")))
     
-#|    (define input-byte-buffer (make-bytes buffer-length))
+    #|    (define input-byte-buffer (make-bytes buffer-length))
     (define input-byte-count 0)
 
     (define (refill-buffer)
@@ -1193,7 +1193,7 @@ EOR
          #t]
         [(list (and telopt (? telopt?)) args ...)
          (send this send-subnegotiate (telopt->byte telopt) #:flush? #t . args) #t]
-        [(or #f (? eof-object?)) (on-close) (receive eof) #f]
+        [(or #f (? eof-object?)) (transmit eof) #f]
         ['echo
          (disable-telopt telopt:echo 'local) #t]
         ['noecho
@@ -1211,14 +1211,20 @@ EOR
 
     (define (on-close)
       (set! connected #f)
+
+      (try-close-output-port out)
+      (when (zstream-output-port? out)
+        (flush-output (zstream-output-port-old-port out))
+        (try-close-output-port (zstream-output-port-old-port out)))
+      
+      (try-close-input-port in)
       (when (zstream-input-port? in)
         (try-close-input-port (zstream-input-port-old-port in)))
+
       (when (wrapped-input-port? in)
-        (try-close-input-port (zstream-output-port-old-port in)))
-      (when (zstream-output-port? out)
-        (try-close-output-port (zstream-output-port-old-port out)))
-      (try-close-input-port in)
-      (try-close-output-port out)
+        (try-close-input-port (wrapped-input-port-old-port in)))
+
+      
       (define old-thread connection-thread)
       (set! connection-thread #f)
       
@@ -1268,13 +1274,13 @@ EOR
                (if (send-message (thread-receive))
                    (loop)
                    (void))
-                ))
+               ))
          (on-close))))
        
     
     (define/override (transmit . args)
       (for ([msg (in-list args)])
-          (when (and connected connection-thread (thread-running? connection-thread))
-            (thread-send connection-thread msg))))))
+        (when (and connected connection-thread (thread-running? connection-thread))
+          (thread-send connection-thread msg))))))
               
 
