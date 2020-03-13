@@ -86,7 +86,7 @@
   
 
 (define (byte->telnet b)
-  (hash-ref telnet-cmd-reverse-lookup-table b))
+  (hash-ref telnet-cmd-reverse-lookup-table b 'invalid))
             
 (define telopt:msdp 69)
 (define telopt:gmcp 201)
