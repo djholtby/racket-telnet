@@ -1211,7 +1211,7 @@ EOR
 
     (define (on-close)
       (set! connected #f)
-
+      
       (try-close-output-port out)
       (when (zstream-output-port? out)
         (flush-output (zstream-output-port-old-port out))
@@ -1229,6 +1229,7 @@ EOR
       (set! connection-thread #f)
       
       (when old-thread (kill-thread old-thread))
+      (eprintf "shouln't be reachable?\n")
       )
     
     (define connection-thread
@@ -1273,8 +1274,7 @@ EOR
                        (loop))))
                (if (send-message (thread-receive))
                    (loop)
-                   (void))
-               ))
+                   (receive eof))))
          (on-close))))
        
     
