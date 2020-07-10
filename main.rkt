@@ -1,7 +1,7 @@
 #lang racket/base
 
-(require racket/class racket/port racket/bytes racket/list racket/match racket/string racket/set json)
-(require "connection.rkt" "compressed-ports.rkt" "charset.rkt" "mxp.rkt" "transcode.rkt")
+(require racket/class racket/port racket/bytes racket/list racket/match racket/string racket/set json charset)
+(require "connection.rkt" "compressed-ports.rkt" "mxp.rkt")
 
 ;; todo: split each manager into its own module?
 ;; idiosynchratic racket style is to jam everything into a monolithic file ;)
@@ -658,7 +658,7 @@
 
 (define (pick-first-common our-prefs their-options)
   (define options (make-hasheq (map (lambda (str)
-                                      (cons (encoding->symbol str) str))
+                                      (cons (string->charset-name str) str))
                                     their-options)))
   (let loop ([lst our-prefs])
     (cond [(empty? lst) #f]
