@@ -173,7 +173,7 @@
   (define (get-write-evt src start end) ; get-write-evt
     (wrap-evt out
               (λ () (write-deflated-bytes src start end))))
-  (displayln 7)
+  
   (flush-output (current-output-port))
   (zstream-output-port
    (make-output-port 'zstream-output-port
