@@ -1,6 +1,7 @@
 #lang racket/base
 
-(require racket/class racket/port racket/bytes racket/list racket/match racket/string racket/set json charset)
+(require racket/class racket/port racket/bytes racket/list racket/match racket/string racket/set
+         json charset)
 (require "connection.rkt" "compressed-ports.rkt" "mxp.rkt")
 
 ;; todo: split each manager into its own module?
@@ -10,10 +11,17 @@
          naws-manager% ttype-manager% charset-manager% mssp-manager%
          encodings->charset-req-sequence) 
 
-(provide telnet:eof telnet:susp telnet:abort telnet:eor telnet:se telnet:nop telnet:dm telnet:break telnet:ip telnet:ao telnet:ayt telnet:ec telnet:el telnet:ga telnet:sb telnet:will telnet:wont telnet:do telnet:dont telnet:iac)
-(provide telopt:msdp telopt:gmcp telopt:mxp telopt:charset telopt:exopl telopt:zmp telopt:compress2 telopt:mccp2 telopt:compress telopt:mccp telopt:mssp telopt:starttls telopt:new-environ telopt:encrypt telopt:authentication
-         telopt:environ telopt:xdisploc telopt:linemode telopt:lflow telopt:tspeed telopt:naws telopt:x3-pad telopt:3270regime telopt:ttyloc telopt:outmrk telopt:eor telopt:ttype telopt:sndloc telopt:supdupoutput telopt:supdup
-         telopt:def telopt:bm telopt:logout telopt:xascii telopt:naoffd telopt:naohtd telopt:naohts telopt:naocrd telopt:naop telopt:naol telopt:rcte telopt:tm telopt:status telopt:nams telopt:sga telopt:rcp telopt:echo telopt:binary)
+(provide telnet:eof telnet:susp telnet:abort telnet:eor telnet:se telnet:nop telnet:dm telnet:break
+         telnet:ip telnet:ao telnet:ayt telnet:ec telnet:el telnet:ga telnet:sb
+         telnet:will telnet:wont telnet:do telnet:dont telnet:iac
+         telopt:msdp telopt:gmcp telopt:mxp telopt:charset telopt:exopl telopt:zmp telopt:compress2
+         telopt:mccp2 telopt:compress telopt:mccp telopt:mssp telopt:starttls telopt:new-environ
+         telopt:encrypt telopt:authentication telopt:environ telopt:xdisploc telopt:linemode
+         telopt:lflow telopt:tspeed telopt:naws telopt:x3-pad telopt:3270regime telopt:ttyloc
+         telopt:outmrk telopt:eor telopt:ttype telopt:sndloc telopt:supdupoutput telopt:supdup
+         telopt:def telopt:bm telopt:logout telopt:xascii telopt:naoffd telopt:naohtd telopt:naohts
+         telopt:naocrd telopt:naop telopt:naol telopt:rcte telopt:tm telopt:status telopt:nams
+         telopt:sga telopt:rcp telopt:echo telopt:binary)
 
 (define telnet:eof 236)
 (define telnet:susp 237)
@@ -296,8 +304,10 @@
 
 
 (define telopt-list
-  (seteq 'msdp 'gmcp 'mxp 'charset 'exopl 'zmp 'compress2 'mccp2 'compress 'mccp 'mssp 'starttls 'new-environ 'encrypt 'authentication 'environ 'xdisploc 'linemode 'lflow 'tspeed
-         'naws 'x3-pad '3270regime 'ttyloc 'outmrk 'eor 'ttype 'sndloc 'supdupoutput 'supdup 'def 'bm 'logout 'xascii 'naoffd 'naohtd 'naohts 'naocrd 'naop 'naol 'rcte 'tm
+  (seteq 'msdp 'gmcp 'mxp 'charset 'exopl 'zmp 'compress2 'mccp2 'compress 'mccp 'mssp 'starttls
+         'new-environ 'encrypt 'authentication 'environ 'xdisploc 'linemode 'lflow 'tspeed
+         'naws 'x3-pad '3270regime 'ttyloc 'outmrk 'eor 'ttype 'sndloc 'supdupoutput 'supdup 'def
+         'bm 'logout 'xascii 'naoffd 'naohtd 'naohts 'naocrd 'naop 'naol 'rcte 'tm
          'status 'nams 'sga 'rcp 'echo 'binary))
 
 (define (telopt? sym)
@@ -391,7 +401,9 @@
     (define/public (send-subneg . args)
       (if (and (cons? args) (bytes? (car args)))
           (car args)
-          (error 'telnet-option-manager%:send-subneg "telnet-option-manager does not support this type of subnegotiation: ~v" args)))
+          (error
+           'telnet-option-manager%:send-subneg
+           "telnet-option-manager does not support this type of subnegotiation: ~v" args)))
 
     ;; default way to translate a subnegotation buffer (tb) to a Racket message 
     (define/public (receive-subneg tb)
@@ -459,7 +471,8 @@
   ; requires: next byte in i is MSDP_VAR followed by valid MSDP data
   (define (get-var)
     (define bv (read-byte i))
-    (unless (and (not (eof-object? bv)) (= bv msdp:var)) (error 'read-msdp "Expected MSDP_VAR but saw ~v isntead" bv))
+    (unless (and (not (eof-object? bv)) (= bv msdp:var))
+      (error 'read-msdp "Expected MSDP_VAR but saw ~v isntead" bv))
     (let loop ([acc (open-output-bytes)])
       (define b (peek-byte i))
       (cond [(eof-object? b) (error 'read-msdp "unexpected EOM reading VAR name")]
@@ -472,7 +485,8 @@
   ; requires: next byte in i is MSDP_VAL followed by valid MSDP data
   (define (get-val)
     (define bv (read-byte i))
-    (unless (and (not (eof-object? bv)) (= bv msdp:val)) (error 'read-msdp "Expected MSDP_VAL but saw ~v instead" bv))
+    (unless (and (not (eof-object? bv)) (= bv msdp:val))
+      (error 'read-msdp "Expected MSDP_VAL but saw ~v instead" bv))
     (define b (peek-byte i))
     (cond [(eof-object? b) (error 'read-msdp "unexpected EOM reading VAL")]
           [(= b msdp:table-open) (get-table)]
@@ -485,7 +499,8 @@
   ; requires: next byte in i is MSDP_OPEN_TABLE followed by valid MSDP data
   (define (get-table)
     (define bv (read-byte i))
-    (unless (and (not (eof-object? bv)) (= bv msdp:table-open)) (error 'read-msdp "Expected MSDP_TABLE_OPEN but saw ~v instead" bv))
+    (unless (and (not (eof-object? bv)) (= bv msdp:table-open))
+      (error 'read-msdp "Expected MSDP_TABLE_OPEN but saw ~v instead" bv))
     (let loop ([acc empty])
       (define b (peek-byte i))
       (cond [(eof-object? b) (error 'read-msdp "unexpected EOM reading table")]
@@ -499,7 +514,8 @@
   ; requires: next byte in i is MSDP_OPEN_ARRAY followed by valid MSDP data
   (define (get-array)
     (define bv (read-byte i))
-    (unless (and (not (eof-object? bv)) (= bv msdp:array-open)) (error 'read-msdp "Expected MSDP_ARRAY_OPEN but saw ~v instead" bv))
+    (unless (and (not (eof-object? bv)) (= bv msdp:array-open))
+      (error 'read-msdp "Expected MSDP_ARRAY_OPEN but saw ~v instead" bv))
     (let loop ([acc empty])
       (define b (peek-byte i))
       (cond [(eof-object? b) (error 'read-msdp "unexpected EOM reading array")]
@@ -507,16 +523,19 @@
             [(= b msdp:array-close)
              (read-byte i) ; chomp the array_close
              (reverse acc)]
-            [else (error 'read-msdp "Expected additional MSDP_VAL or MSDP_ARRAY_CLOSE while reading array, but saw ~v" b)])))
+            [else
+             (error 'read-msdp "Expected additional MSDP_VAL or MSDP_ARRAY_CLOSE while reading array, but saw ~v" b)])))
   ; (get-atomic) reads an atomic MSDP value
   ; get-atomic: -> (anyof Num Bool Str)
   ; requires: next byte in i is NOT MSDP_ARRAY_OPEN or MSDP_TABLE_OPEN
   (define (get-atomic)
     (let loop ([acc (open-output-bytes)])
       (define b (peek-byte i))
-      (cond [(memv b (list eof msdp:var msdp:val msdp:array-close msdp:table-close)) (string->value (get-output-string acc))]
+      (cond [(memv b (list eof msdp:var msdp:val msdp:array-close msdp:table-close))
+             (string->value (get-output-string acc))]
             [(memv b (list msdp:array-open msdp:table-open))
-             (error 'read-msdp "Unexpected MSDP_~a_OPEN token while reading string" (if (= b msdp:array-open) "ARRAY" "TABLE"))]
+             (error 'read-msdp "Unexpected MSDP_~a_OPEN token while reading string"
+                    (if (= b msdp:array-open) "ARRAY" "TABLE"))]
             [else (write-byte (read-byte i) acc) (loop acc)])))
 
   (cons (get-var) (get-val)))
@@ -707,7 +726,14 @@
                  (write-string (cdr enc) out))
           (write-byte charset:rejected out))
       (get-output-bytes out #t))))
-               
+
+(define (->mssp-bytes v)
+  (cond [(bytes? v) v]
+        [(string? v) (string->bytes/utf-8 v)] ; really ascii not utf-8 but who's counting?
+        [(number? v) (string->bytes/utf-8 (number->string v))]
+        [(boolean? v) (if v #"1" #"0")]
+        [else (error '->mssp-bytes "Invalid mssp value ~v" v)]))
+
 (define mssp-manager%
   (class telnet-option-manager%
     (super-new)
@@ -723,7 +749,7 @@
           (write-string (if (string? var) var (symbol->string var)) out)
           (for ([v (in-list vlst)])
             (write-byte mssp:val out)
-            (write v out))))
+            (write-bytes (->mssp-bytes v) out))))
       (get-output-bytes out #f))))
 
 #| 
