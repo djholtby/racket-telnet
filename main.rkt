@@ -1212,10 +1212,10 @@ EOR
         [(? bytes?) (send-bytes (escape-iac-and-cr msg)) #t]
         [(? string?) (send-bytes (escape-iac-and-cr (transcode-output msg))) #t]
         [(list 'text contents ...)
-         (send-bytes (escape-iac-and-cr (transcode-output
-                                         (if (supports? 'mxp)
-                                             (xexpr->mxp msg terminal-settings markup-settings)
-                                             (xexpr->telnet msg terminal-settings markup-settings)))))
+         (parameterize ([tag-settings markup-settings])
+           (send-bytes (escape-iac-and-cr (transcode-output
+                                           (xexpr->telnet msg terminal-settings
+                                                          #:mxp (supports? 'mxp))))))
          #t]
         [(list (and telopt (? telopt?)) args ...)
          (send this send-subnegotiate (telopt->byte telopt) #:flush? #t . args) #t]
