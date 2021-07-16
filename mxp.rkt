@@ -254,9 +254,9 @@ a color scheme is a
                [(list tag (list params ...) body ...)
                 (define tag-info (hash-ref (tags) tag #f))
                 (define cust-rend (and tag-info (mxp-tag-custom-render tag-info)))
-                (cond [cust-rend (loop current-format
-                                       (cons (cust-rend (first content) terminal)
-                                             (rest content))
+                (cond [cust-rend
+                       (loop current-format
+                                       (list (cust-rend (first content) terminal))
                                        last-was-nl?)]
                       [else
                        (define block-display? (and tag-info (eq? 'block (mxp-tag-display tag-info))))

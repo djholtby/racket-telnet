@@ -3,32 +3,6 @@
 (require racket/match racket/list racket/vector racket/string)
 (provide rgb-table rgb->xterm rgb->ansi xterm->rgb xterm->ansi string->color)
 
-(module+ test
-  (require racket/function)
-  #|  (let loop ()
-  (define line (read-line))
-  (unless (eof-object? line)
-  (define col (string->color (string-trim line)))
-  
-  (when col
-  (apply printf "~a\n\e[38;5;~amANSI4\e[38;5;~amANSI3\e[38;5;~amXTERM\e[38;2;~a;~a;~am RGB \e[0m\n"
-  col
-  (first col)
-  (second col)
-  (third col)
-  (fourth col)))
-  (loop)))) |#
-
-  (for ([i (in-range 16)])
-    (apply printf "Color ~a : \e[48;5;~amXTERM\e[48;2;~a;~a;~am RGB \e[0m\n"
-           i
-           i
-           (xterm->rgb i)))
-;  (for ([i (in-list '(16 17 18 19 20 21))])
-;    (printf "~a => ~a\n" i (map (curryr number->string 16) (xterm->rgb i))))
-  )
-           
-
 ;; color format is ANSI, ANSI/DIM, XTERM, RGB
 ;; if RGB is missing, falls back to XTERM.  If XTERM is missing, falls back to ANSI
 
@@ -440,7 +414,7 @@
            (yellow3 . (11 3 184 (215 215 0)))
            (yellow4 . (3 3 106 (135 175 0)))
            (yellowgreen . (11 3 112 (154 205 50)))
-
+           ;; ANSI 16 colors 
            (black/ansi . (0 0 0 #f))
            (red/ansi . (1 1 1 #f))
            (green/ansi . (2 2 2 #f))

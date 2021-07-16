@@ -2,14 +2,15 @@
 
 (require racket/class racket/port racket/bytes racket/list racket/match racket/string racket/set
          json charset)
-(require "connection.rkt" "compressed-ports.rkt" "mxp.rkt")
+(require "connection.rkt" "compressed-ports.rkt" "mxp.rkt" "logger.rkt")
 
 ;; todo: split each manager into its own module?
 ;; idiosynchratic racket style is to jam everything into a monolithic file ;)
 
 (provide telnet-conn% telnet-option-manager% mccp2-manager% gmcp-manager% msdp-manager%
          naws-manager% ttype-manager% charset-manager% mssp-manager%
-         encodings->charset-req-sequence) 
+         encodings->charset-req-sequence
+         (struct-out exn:fail:telnet)) 
 
 (provide telnet:eof telnet:susp telnet:abort telnet:eor telnet:se telnet:nop telnet:dm telnet:break
          telnet:ip telnet:ao telnet:ayt telnet:ec telnet:el telnet:ga telnet:sb
@@ -22,6 +23,23 @@
          telopt:def telopt:bm telopt:logout telopt:xascii telopt:naoffd telopt:naohtd telopt:naohts
          telopt:naocrd telopt:naop telopt:naol telopt:rcte telopt:tm telopt:status telopt:nams
          telopt:sga telopt:rcp telopt:echo telopt:binary)
+
+
+
+(struct exn:fail:telnet exn:fail () #:transparent)
+
+(define (telnet-error who msg . format-args)
+  (raise
+   (exn:fail:telnet
+    (apply format (string-append "~a: " msg) who format-args)
+    (current-continuation-marks))))
+
+(define (log-telnet-exn e)
+  (log-message telnet-logger
+               'error
+               (exn-message e)
+               (exn-continuation-marks e)
+               #f))
 
 (define telnet:eof 236)
 (define telnet:susp 237)
@@ -376,11 +394,7 @@
 (struct wrapped-output-port (out old-port) #:property prop:output-port (struct-field-index out))
 
 (define (telopt-q-state? s)
-  (memq s (list 'no 'want-no 'want-no/opp 'yes 'want-yes 'want-yes/opp)))
-
-
-
-
+  (memq s '(no want-no want-no/opp yes want-yes want-yes/opp)))
 
 
 (define telnet-option-manager%
@@ -406,11 +420,13 @@
            "telnet-option-manager does not support this type of subnegotiation: ~v" args)))
 
     ;; default way to translate a subnegotation buffer (tb) to a Racket message 
-    (define/public (receive-subneg tb)
-      (list telopt-name tb))
+    (define/public (receive-subneg subneg-buff)
+      (list telopt-name subneg-buff))
 
-    ;; override if the telopt has a state that needs to be reset when its activated, or has a startup procedure
-    ;;  (e.g. WILL compress2 should be followed by a compression marker and then a switch to compressed stream,
+    ;; override if the telopt has a state that needs to be reset when its activated, or has a
+    ;;  startup procedure
+    ;;  (e.g. WILL compress2 should be followed by a compression marker and then a switch to
+    ;;             compressed stream,
     ;;        DO   compress2 does nothing (it needs to wait on the marker).
     (define/public (on-enable where) (void))
 
@@ -426,12 +442,12 @@
     
 
     (define/override (on-enable where)
-      (when (eq? where 'local) ; we've been asked to compress
-        (send owner start-compress-output!))
+      (when (eq? where 'local) ; we've been asked to compress our output
+        (send owner start-compress-output!)) ; unfortunately needs to be coupled with the term :(
       ; if the remote side wants to compress, we need to wait for the marker
       )
-
-    (define/override (receive-subneg bs)
+     
+    (define/override (receive-subneg subneg-buff)
       ;; This is the "compression start" marker
       (send owner start-compress-input!)
       'compress-start)
@@ -451,8 +467,8 @@
     (super-new)
     (send this set-telopt telopt:gmcp)
 
-    (define/override (receive-subneg bs)
-      (define s (bytes->string/utf-8 bs))
+    (define/override (receive-subneg subneg-buff)
+      (define s (bytes->string/utf-8 subneg-buff))
       (define parts (regexp-match #px"^([^ ]+)( (.*))?$" s))
       (define key (second parts))
       (define value (fourth parts))
@@ -472,12 +488,14 @@
   (define (get-var)
     (define bv (read-byte i))
     (unless (and (not (eof-object? bv)) (= bv msdp:var))
-      (error 'read-msdp "Expected MSDP_VAR but saw ~v isntead" bv))
+      (telnet-error 'read-msdp "Expected MSDP_VAR but saw ~v instead" bv))
     (let loop ([acc (open-output-bytes)])
       (define b (peek-byte i))
-      (cond [(eof-object? b) (error 'read-msdp "unexpected EOM reading VAR name")]
-            [(memv b (list msdp:table-open msdp:table-close msdp:array-open msdp:array-close msdp:var ))
-             (error 'read-msdp "Unexpected value: ~v, acc=~a" b (get-output-string acc))]
+      (cond [(eof-object? b) (telnet-error 'read-msdp "unexpected EOM reading VAR name")]
+            [(memv
+              b
+              (list msdp:table-open msdp:table-close msdp:array-open msdp:array-close msdp:var ))
+             (telnet-error 'read-msdp "Unexpected value: ~v, acc=~a" b (get-output-string acc))]
             [(= b msdp:val) (string->symbol (bytes->string/utf-8 (get-output-bytes acc)))]
             [else (write-byte (read-byte i) acc) (loop acc)])))
   ; (get-val) reads a MSDP value from port i
@@ -486,13 +504,14 @@
   (define (get-val)
     (define bv (read-byte i))
     (unless (and (not (eof-object? bv)) (= bv msdp:val))
-      (error 'read-msdp "Expected MSDP_VAL but saw ~v instead" bv))
+      (telnet-error 'read-msdp "Expected MSDP_VAL but saw ~v instead" bv))
     (define b (peek-byte i))
-    (cond [(eof-object? b) (error 'read-msdp "unexpected EOM reading VAL")]
+    (cond [(eof-object? b) (telnet-error 'read-msdp "unexpected EOM reading VAL")]
           [(= b msdp:table-open) (get-table)]
           [(= b msdp:array-open) (get-array)]
           [(memv b (list msdp:table-close msdp:array-close msdp:var msdp:val))
-           (error 'read-msdp "Expected value, MSDP_TABLE_OPEN, or MSSDP_ARRAY_OPEN, but saw ~v" b)]
+           (telnet-error 'read-msdp
+                         "Expected value, MSDP_TABLE_OPEN, or MSSDP_ARRAY_OPEN, but saw ~v" b)]
           [else (get-atomic)]))
   ; (get-table) reads a MSDP table from port i
   ; get-table: -> (hashof Sym MSDP-Value)
@@ -500,31 +519,32 @@
   (define (get-table)
     (define bv (read-byte i))
     (unless (and (not (eof-object? bv)) (= bv msdp:table-open))
-      (error 'read-msdp "Expected MSDP_TABLE_OPEN but saw ~v instead" bv))
+      (telnet-error 'read-msdp "Expected MSDP_TABLE_OPEN but saw ~v instead" bv))
     (let loop ([acc empty])
       (define b (peek-byte i))
-      (cond [(eof-object? b) (error 'read-msdp "unexpected EOM reading table")]
+      (cond [(eof-object? b) (telnet-error 'read-msdp "unexpected EOM reading table")]
             [(= b msdp:var) (loop (cons (read-msdp i) acc))]
             [(= b msdp:table-close)
              (read-byte i) ; chomp the table_close
              (make-immutable-hasheq acc)] 
-            [else (error 'read-msdp "Expected additional MSDP_VAR or MSDP_TABLE_CLOSE while reading table, but saw ~v, acc = ~v" b acc)])))
+            [else (telnet-error 'read-msdp "Expected additional MSDP_VAR or MSDP_TABLE_CLOSE while reading table, but saw ~v, acc = ~v" b acc)])))
   ; (get-array) reads a MSDP array from port i
   ; get-array: -> (listof MSDP-Value)
   ; requires: next byte in i is MSDP_OPEN_ARRAY followed by valid MSDP data
   (define (get-array)
     (define bv (read-byte i))
     (unless (and (not (eof-object? bv)) (= bv msdp:array-open))
-      (error 'read-msdp "Expected MSDP_ARRAY_OPEN but saw ~v instead" bv))
+      (telnet-error 'read-msdp "Expected MSDP_ARRAY_OPEN but saw ~v instead" bv))
     (let loop ([acc empty])
       (define b (peek-byte i))
-      (cond [(eof-object? b) (error 'read-msdp "unexpected EOM reading array")]
+      (cond [(eof-object? b) (telnet-error 'read-msdp "unexpected EOM reading array")]
             [(= b msdp:val) (loop (cons (get-val) acc))]
             [(= b msdp:array-close)
              (read-byte i) ; chomp the array_close
              (reverse acc)]
             [else
-             (error 'read-msdp "Expected additional MSDP_VAL or MSDP_ARRAY_CLOSE while reading array, but saw ~v" b)])))
+             (telnet-error 'read-msdp
+                           "Expected additional MSDP_VAL or MSDP_ARRAY_CLOSE while reading array, but saw ~v" b)])))
   ; (get-atomic) reads an atomic MSDP value
   ; get-atomic: -> (anyof Num Bool Str)
   ; requires: next byte in i is NOT MSDP_ARRAY_OPEN or MSDP_TABLE_OPEN
@@ -534,8 +554,8 @@
       (cond [(memv b (list eof msdp:var msdp:val msdp:array-close msdp:table-close))
              (string->value (get-output-string acc))]
             [(memv b (list msdp:array-open msdp:table-open))
-             (error 'read-msdp "Unexpected MSDP_~a_OPEN token while reading string"
-                    (if (= b msdp:array-open) "ARRAY" "TABLE"))]
+             (telnet-error 'read-msdp "Unexpected MSDP_~a_OPEN token while reading string"
+                           (if (= b msdp:array-open) "ARRAY" "TABLE"))]
             [else (write-byte (read-byte i) acc) (loop acc)])))
 
   (cons (get-var) (get-val)))
@@ -602,9 +622,9 @@
 
     (send this set-telopt telopt:msdp)
 
-    (define/override (receive-subneg bs)
+    (define/override (receive-subneg subneg-buff)
       (list 'msdp
-            (bytes->msdp bs)))
+            (bytes->msdp subneg-buff)))
 
     (define/override (send-subneg jsexpr)
       (msdp->bytes jsexpr))))
@@ -649,13 +669,15 @@
       (when (eq? where 'remote)
         (send owner send-subnegotiate telopt:ttype ttype:send #:raw? #t)))
 
-    (define/override (receive-subneg bs)
-      (if (= ttype:send (bytes-ref bs 0))
+    (define/override (receive-subneg subneg-buff)
+      (if (= ttype:send (bytes-ref subneg-buff 0))
           (begin
-            (send owner send-subnegotiate telopt:ttype (bytes-append (list->bytes (list ttype:is))
-                                                                     (string->bytes/utf-8 (next-terminal!))) #:raw? #t)
+            (send owner send-subnegotiate
+                  telopt:ttype
+                  (bytes-append (list->bytes (list ttype:is))
+                                (string->bytes/utf-8 (next-terminal!))) #:raw? #t)
             #f)
-          (let ([terminal-name (bytes->string/utf-8 bs #\? 1)])
+          (let ([terminal-name (bytes->string/utf-8 subneg-buff #\? 1)])
             (if (or (null? remote-types)
                     (not (string=? (first remote-types) terminal-name)))
                 (begin
@@ -671,8 +693,8 @@
   (get-output-bytes out #t))
 
 
-;; (pick-first-common our-prefs their-options) returns the first item from our-prefs that is a member of their-options (according to equal?)
-;;    or #f if none of our-prefs is a member.
+;; (pick-first-common our-prefs their-options) returns the first item from our-prefs that is a member
+;;    of their-options (according to equal?), or #f if none of our-prefs is a member.
 ;; pick-first-common: (listof Sym) (listof Str) -> (U (cons Sym Str) #f)
 
 (define (pick-first-common our-prefs their-options)
@@ -699,15 +721,14 @@
         (send owner send-subnegotiate telopt:charset rs)))
 
     ;; todo: double check that local and remote aren't backwards!!!
-    (define/override (receive-subneg bs)
-      (define option (bytes-ref bs 0))
+    (define/override (receive-subneg subneg-buff)
+      (define option (bytes-ref subneg-buff 0))
       (cond [(= option charset:rejected)
              (send owner set-remote-charset "us-ascii")]
             [(= option charset:accepted)
-             (send owner set-remote-charset (bytes->string/utf-8 bs #\? 1))]
+             (send owner set-remote-charset (bytes->string/utf-8 subneg-buff #\? 1))]
             [(= option charset:request)
-             (define remote-encodings (string-split (bytes->string/utf-8 bs #\? 1) ":"))
-             ;(displayln (format "Remote repports supprt for these charsets : ~a" remote-encodings) (current-error-port))
+             (define remote-encodings (string-split (bytes->string/utf-8 subneg-buff #\? 1) ":"))
              (define chosen-one (pick-first-common enc remote-encodings))
              (when chosen-one
                (send owner set-output-encoding! (car chosen-one))
@@ -732,7 +753,7 @@
         [(string? v) (string->bytes/utf-8 v)] ; really ascii not utf-8 but who's counting?
         [(number? v) (string->bytes/utf-8 (number->string v))]
         [(boolean? v) (if v #"1" #"0")]
-        [else (error '->mssp-bytes "Invalid mssp value ~v" v)]))
+        [else (telnet-error '->mssp-bytes "Invalid mssp value ~v" v)]))
 
 (define mssp-manager%
   (class telnet-option-manager%
@@ -787,7 +808,9 @@ EOR
 
 
 
-(define-struct telopt-state (allow-local? allow-remote? [us #:mutable] [them #:mutable]) #:transparent)
+(define-struct telopt-state
+  (allow-local? allow-remote? [us #:mutable] [them #:mutable])
+  #:transparent)
 ;; A TQ is a (U 'yes 'no 'want-yes 'want-yes/opposite 'want-no 'want-no/opposite)
 ;; A Telopt-State (TS) is a (telopt-state Bool Bool TQ TQ)
 
@@ -837,7 +860,10 @@ EOR
   (class* terminal% (terminal<%>)
     (super-new)
     
-    (init-field in out)
+    (init [(in/init in)] [(out/init out)])
+
+    (define in in/init)
+    (define out out/init)
     
     (init [telopts '()])
     (init [option-managers '()])
@@ -853,9 +879,7 @@ EOR
     (define/override (set-encoding! enc)
       (set! input-encoding enc)
       (set! output-encoding enc))
-
-    ;; in theory we can use different encodings, in practice why would a client want to receive a different encoding than it sends?
-    
+  
     (define/public (get-input-encoding)
       input-encoding)
 
@@ -870,10 +894,14 @@ EOR
       (set! output-encoding enc))
 
     (define (transcode-input bs)
-      (bytes->string/name bs (if (telopt-enabled? telopt:binary) input-encoding 'ASCII)))
+      (bytes->string/name bs (if (telopt-enabled? telopt:binary)
+                                 input-encoding
+                                 'ASCII)))
 
     (define (transcode-output s)
-      (if (string? s) (string->bytes/name s (if (telopt-enabled? telopt:binary) output-encoding 'ASCII)) s))
+      (if (string? s) (string->bytes/name s (if (telopt-enabled? telopt:binary)
+                                                output-encoding
+                                                'ASCII)) s))
     
     (define telopt-managers (list->managers option-managers this))
     (define telopt-settings (list->telopt-settings telopts))
@@ -908,14 +936,15 @@ EOR
     
     (define/public (start-compress-input!)
       (if (zstream-input-port? in)
-          (log-warning "compression already enabled")
+          (log-telnet-warning "compression already enabled")
           (if (wrapped-input-port? in)
-              (set! in (open-zstream-input-port (wrapped-input-port-old-port in) bs #:remnants (port->bytes in)))
+              (set! in (open-zstream-input-port (wrapped-input-port-old-port in) bs
+                                                #:remnants (port->bytes in)))
               (set! in (open-zstream-input-port in bs)))))
 
     (define/public (start-compress-output!)
       (if (zstream-output-port? out)
-          (log-warning "output compression already enabled")
+          (log-telnet-warning "output compression already enabled")
           (begin
             ;(displayln "Enabling output compression" (current-error-port))
             (send-subnegotiate telopt:compress2 #"" #:raw? #t)
@@ -926,25 +955,8 @@ EOR
           (begin
             (close-output-port out)
             (set! out (zstream-output-port-old-port out)))
-          (log-warning "output compression not currently active")))
+          (log-telnet-warning "output compression not currently active")))
     
-    #|    (define input-byte-buffer (make-bytes buffer-length))
-    (define input-byte-count 0)
-
-    (define (refill-buffer)
-
-      (define amnt (with-handlers ([exn:fail? (λ (e) eof)])
-                     (read-bytes-avail! input-byte-buffer in)))
-      (cond [(and (eof-object? amnt)
-                  (zstream-input-port? in)
-                  (bytes? (get-zsteam-input-port-remains in)))
-             (close-input-port in)
-             (bytes-copy! input-byte-buffer 0 (get-zstream-input-port-remains in) 0)
-             (set! input-byte-count (bytes-length (bytes-length (get-zstream-input-port-remains in))))]
-            [(eof-object? amnt) amnt]
-            [else (set! input-byte-count amnt) amnt]))
-    |#
-
     (define terminal-dimensions '(80 . 24))
     (define/override (dimensions)
       terminal-dimensions)
@@ -1002,7 +1014,7 @@ EOR
             [else
              (write-byte 13 input-buffer)
              (write-byte b input-buffer)
-             (log-info (format "malformed telnet byte sequence \\r\\u~a" b))
+             (log-telnet-info (format "malformed telnet byte sequence \\r\\u~a" b))
              (set! saw/r? #f)])
           (if (= b 13) (set! saw/r? #t) (write-byte b input-buffer))))
 
@@ -1032,7 +1044,8 @@ EOR
             (receive `(enable local ,(byte->telopt telopt)))
             (set-telopt-state-us! ts 'yes)
             (when tm (send tm on-enable 'local))]
-           [(want-yes/opposite) (set-telopt-state-us! ts 'want-no) (send-negotiate telnet:wont telopt)])]
+           [(want-yes/opposite) (set-telopt-state-us! ts 'want-no)
+                                (send-negotiate telnet:wont telopt)])]
         [(dont)
          (case (telopt-state-us ts)
            [(no) (void)]
@@ -1109,7 +1122,7 @@ EOR
                               (telopt->byte telopt)))
       (if (and neg-byte telopt-byte)
           (send-bytes telnet:iac neg-byte telopt-byte #:flush? flush?)
-          (error 'telnet:send-negotiate "invalid negotiate sequence ~v ~v" neg telopt)))
+          (telnet-error 'telnet:send-negotiate "invalid negotiate sequence ~v ~v" neg telopt)))
   
     (define/public (telopt-enabled? telopt [where 'either])
       (define ts (hash-ref! telopt-settings telopt (lambda () (telopt-state #f #f 'no 'no))))
@@ -1193,9 +1206,10 @@ EOR
              telnet:se
              #:flush? flush?))
           (begin
-            (displayln (format "cannot subnegotiate with disabled telopt ~a (~a) ~a" telopt (byte->telopt telopt) args) (current-error-port))
-            (log-warning 'telnet:send-subnegotiate
-                         (format "attempt to subnegotiate with disabled protocol ~a (~a)" telopt (byte->telopt telopt))))))
+            (log-telnet-warning
+             (format "send-subnegotiate: attempt to subnegotiate with disabled protocol ~a (~a)"
+                     telopt
+                     (byte->telopt telopt))))))
 
 
     
@@ -1233,20 +1247,22 @@ EOR
         ['nop
          (send-bytes telnet:iac telnet:nop)]
         ; todo - other iac commands?
-        [else (log-warning (format "msg not handled yet ~v" msg)) #t]))
+        [else (log-telnet-warning (format "msg not handled yet ~v" msg)) #t]))
 
     (define (on-close)
       (set! connected #f)
       
-      (try-close-output-port out)
-      (when (zstream-output-port? out)
-        (flush-output (zstream-output-port-old-port out))
-        (try-close-output-port (zstream-output-port-old-port out)))
-      
-      (try-close-input-port in)
-      (when (zstream-input-port? in)
-        (try-close-input-port (zstream-input-port-old-port in)))
+      (with-handlers ([exn-expected? void])
+        (try-close-output-port out)
+        (when (zstream-output-port? out)
+          (flush-output (zstream-output-port-old-port out))
+          (try-close-output-port (zstream-output-port-old-port out))))
 
+      (with-handlers ([exn-expected? void])
+        (try-close-input-port in)
+        (when (zstream-input-port? in)
+          (try-close-input-port (zstream-input-port-old-port in))))
+      
       (when (wrapped-input-port? in)
         (try-close-input-port (wrapped-input-port-old-port in)))
 
@@ -1261,46 +1277,56 @@ EOR
     (define connection-thread
       (thread
        (lambda ()
-         (let loop ()
-           (if (port? (sync (thread-receive-evt) in))
-               (let ([b (next-byte)])
-                 (if (eof-object? b)
-                     (begin
-                       (receive b)
-                       (on-close))
-                     (begin
-                       (case state
-                         [(data) (if (= b telnet:iac) (set! state 'iac) (accumulate b))]
-                         [(iac)
-                          (define c (byte->telnet b))
-                          (case c
-                            [(sb will wont do dont) (set! state c)]
-                            [(iac) (set! state 'data) (accumulate b)]
-                            [else (set! state 'data) (receive c)])]
-                         [(will wont do dont)
-                          (receive-negotiate b)
-                          (set! state 'data)
-                          ]
-                         [(sb)
-                          (set! sb-telopt b)
-                          (set! state 'sb+telopt)]
-                         [(sb+telopt)
-                          (if (= b telnet:iac) (set! state 'sb+telopt+iac) (write-byte b subneg-buffer))]
-                         [(sb+telopt+iac)
-                          (if (= b telnet:iac)
-                              (begin (set! state 'sb+telopt) (write-byte b subneg-buffer))
-                              (if (= b telnet:se)
-                                  (begin
-                                    (receive-subnegotiate sb-telopt (get-output-bytes subneg-buffer #t))
-                                    (set! state 'data))
-                                  (begin
-                                    (log-warning 'telnet "invalid iac during subnegotiation")
-                                    (receive-subnegotiate sb-telopt (get-output-bytes subneg-buffer #t))
-                                    (set! state 'data))))])
-                       (loop))))
-               (if (send-message (thread-receive))
-                   (loop)
-                   (receive eof))))
+         (with-handlers ([exn:fail:telnet? (λ (e) log-telnet-exn)]
+                         [exn-expected? void])
+           (let loop ()
+             (if (port? (sync (thread-receive-evt) in))
+                 (let ([b (next-byte)])
+                   (if (eof-object? b)
+                       (begin
+                         (receive b)
+                         (on-close))
+                       (begin
+                         (case state
+                           [(data) (if (= b telnet:iac) (set! state 'iac) (accumulate b))]
+                           [(iac)
+                            (define c (byte->telnet b))
+                            (case c
+                              [(sb will wont do dont) (set! state c)]
+                              [(iac) (set! state 'data) (accumulate b)]
+                              [else (set! state 'data) (receive c)])]
+                           [(will wont do dont)
+                            (with-handlers ([exn:fail:telnet?
+                                             log-telnet-exn])
+                              (receive-negotiate b))
+                            (set! state 'data)
+                            ]
+                           [(sb)
+                            (set! sb-telopt b)
+                            (set! state 'sb+telopt)]
+                           [(sb+telopt)
+                            (if (= b telnet:iac)
+                                (set! state 'sb+telopt+iac)
+                                (write-byte b subneg-buffer))]
+                           [(sb+telopt+iac)
+                            (if (= b telnet:iac)
+                                (begin (set! state 'sb+telopt) (write-byte b subneg-buffer))
+                                (begin
+                                  (unless (= b telnet:se)
+                                    (log-telnet-warning 
+                                     "invalid iac during subnegotiation - ~a" b))
+                                  (with-handlers ([exn:fail:telnet?
+                                                   log-telnet-exn])
+                                    (receive-subnegotiate sb-telopt
+                                                          (get-output-bytes subneg-buffer #t)))
+                                  (set! state 'data))
+                                )])
+                         (loop))))
+                 (if (with-handlers ([exn:fail:telnet?
+                                      log-telnet-exn])
+                       (send-message (thread-receive)))
+                     (loop)
+                     (receive eof)))))
          (on-close))))
        
     
@@ -1308,5 +1334,34 @@ EOR
       (for ([msg (in-list args)])
         (when (and connected connection-thread (thread-running? connection-thread))
           (thread-send connection-thread msg))))))
-              
 
+
+;; taken from racket/web-server, and modified a bit since this is not doing HTTP
+
+(define/match (exn-expected? _)
+  [((or
+     ;; This error is "Connection reset by peer" and doesn't really
+     ;; indicate a problem with the server. It occurs when our end
+     ;; doesn't "realize" that the connection was interrupted (for
+     ;; whatever reason) and it attempts to send a packet to the other
+     ;; end, to which the other end replies with an RST packet because
+     ;; it wasn't expecting anything from our end.
+     (exn:fail:network:errno _ _ (cons (or 54 104) 'posix))
+     (exn:fail:filesystem:errno _ _ (cons (or 54 104) 'posix))
+     ;; This error is "Broken pipe" and it occurs when our end attempts
+     ;; to write to the other end over a closed socket. It can happen
+     ;; when a browser suddenly closes the socket while we're sending
+     ;; it data (eg. because the user closed a tab).
+     (exn:fail:network:errno _ _ (cons 32 'posix))
+     (exn:fail:filesystem:errno _ _ (cons 32 'posix))
+     ;; This is error is not useful because it just means the other
+     ;; side closed the connection early during writing, which we can't
+     ;; do anything about.
+     (exn:fail "fprintf: output port is closed" _)
+     ;; The connection may get timed out while the request is being
+     ;; read, when that happens we need to gracefully kill the
+     ;; connection.
+     (exn:fail (regexp #rx"input port is closed") _)))
+   #t]
+  [(_)
+   #f])

@@ -1,11 +1,19 @@
 #lang racket/base
-(require ffi/unsafe ffi/unsafe/define racket/port racket/file (except-in racket/contract ->) (prefix-in c: (only-in racket/contract ->)))
+(require ffi/unsafe ffi/unsafe/define racket/port racket/file racket/match
+         (except-in racket/contract ->)
+         (prefix-in c: (only-in racket/contract ->)))
 
 (provide
- (contract-out (open-zstream-input-port (->* (input-port?) (exact-positive-integer? #:remnants (or/c #f bytes?)) input-port?))
-               (open-zstream-output-port (->* (output-port?) (exact-positive-integer?) output-port?)))
+ (contract-out (open-zstream-input-port (->* (input-port?)
+                                             (exact-positive-integer?
+                                              #:remnants (or/c #f bytes?))
+                                             input-port?))
+               (open-zstream-output-port (->* (output-port?)
+                                              (exact-positive-integer?)
+                                              output-port?)))
  ;open-zstream-input-port open-zstream-output-port
- zstream-input-port? zstream-output-port? get-zstream-input-port-remains zstream-input-port-old-port zstream-output-port-old-port)
+ zstream-input-port? zstream-output-port? get-zstream-input-port-remains zstream-input-port-old-port
+ zstream-output-port-old-port)
 
 (define-ffi-definer define-zlib (ffi-lib "libz" '("1.2" "1" #f)))
 
@@ -53,15 +61,10 @@
 (define-zlib inflateEnd (_fun _z_stream-pointer -> _int))
 
 
-;(define-struct zstream-input-port
-;  (in
-;   zs
-;   buffer
-;   ))
 
-;; 
+(struct zstream-input-port (port old-port unused-buffer raw-ptr)
+  #:property prop:input-port (struct-field-index port))
 
-(struct zstream-input-port (port old-port unused-buffer raw-ptr) #:property prop:input-port (struct-field-index port))
 (define (get-zstream-input-port-remains z)
   (unbox (zstream-input-port-unused-buffer z)))
 
@@ -89,41 +92,46 @@
     (set! dest-buffer (cast dest-retainer _pointer (_bytes o (bytes-length dest))))
     (set-z_stream-next_out! z dest-buffer)
     (set-z_stream-avail_out! z (bytes-length dest))
-    (let ([amnt (let loop ()
-                  (cond [(positive? (z_stream-avail_in z))
-                         (let ([code (inflate z Z-SYNC-FLUSH)])
-                           (cond [(= code Z-DATA-ERROR)
-                                  (error 'zstream-input-port "inflate returned Z_DATA_ERROR, message = ~a" (z_stream-msg z))]
-                                 [(negative? code) 
-                                  (error 'zstream-input-port "zlib:inflate error ~v" code)]
-                                 [(and (= code Z-STREAM-END)
-                                       (> (bytes-length dest) (z_stream-avail_out z)))
-                                  (set-box! done-box (subbytes (z_stream-next_in z) 0 (z_stream-avail_in z)))
-                                  (set! eof? #t)
-                                  (- (bytes-length dest) (z_stream-avail_out z))]
-                                 [(= code Z-STREAM-END)
-                                  (set-box! done-box (subbytes (z_stream-next_in z) 0 (z_stream-avail_in z)))
-                                  (set! eof? #t)
-                                  eof]
-                                 [(zero? (z_stream-avail_out z)) ; buffer has been filled, we done
-                                  (bytes-length dest)]
-                                 ;; at this point: buffer isn't full, but deflate didn't fill it.  more input is needed
-                                 [else (loop)]))]
-                        [eof? eof]
-                        [else (let ([amnt (read-bytes-avail!* buffer in)])
-                                (cond [(and (eof-object? amnt) (= (bytes-length dest) (z_stream-avail_out z)))
-                                       (set! eof? #t) eof]
-                                      [(eof-object? amnt)
-                                       (set! eof? #t) (- (bytes-length dest) (z_stream-avail_out z))]
-                                      [(procedure? amnt) (error 'zstream-input-port:read "unexpected special value")]
-                                      [(and (zero? amnt)
-                                            (= (bytes-length dest) (z_stream-avail_out z)))
-                                       (wrap-evt in (λ () 0))]
-                                      [(zero? amnt) (- (bytes-length dest) (z_stream-avail_out z))]
-                                      [else
-                                       (set-z_stream-next_in! z buffer)
-                                       (set-z_stream-avail_in! z amnt)
-                                       (loop)]))]))])
+    (let ([amnt
+           (let loop ()
+             (cond
+               [(positive? (z_stream-avail_in z))
+                (let ([code (inflate z Z-SYNC-FLUSH)])
+                  (cond [(= code Z-DATA-ERROR)
+                         (error 'zstream-input-port
+                                "inflate returned Z_DATA_ERROR, message = ~a"
+                                (z_stream-msg z))]
+                        [(negative? code) 
+                         (error 'zstream-input-port "zlib:inflate error ~v" code)]
+                        [(and (= code Z-STREAM-END)
+                              (> (bytes-length dest) (z_stream-avail_out z)))
+                         (set-box! done-box (subbytes (z_stream-next_in z) 0 (z_stream-avail_in z)))
+                         (set! eof? #t)
+                         (- (bytes-length dest) (z_stream-avail_out z))]
+                        [(= code Z-STREAM-END)
+                         (set-box! done-box (subbytes (z_stream-next_in z) 0 (z_stream-avail_in z)))
+                         (set! eof? #t)
+                         eof]
+                        [(zero? (z_stream-avail_out z)) ; buffer has been filled, we done
+                         (bytes-length dest)]
+                        ;; at this point: buffer isn't full, and deflate didn't fill it, so get more. 
+                        [else (loop)]))]
+               [eof? eof]
+               [else (let ([amnt (read-bytes-avail!* buffer in)])
+                       (cond [(and (eof-object? amnt) (= (bytes-length dest) (z_stream-avail_out z)))
+                              (set! eof? #t) eof]
+                             [(eof-object? amnt)
+                              (set! eof? #t) (- (bytes-length dest) (z_stream-avail_out z))]
+                             [(procedure? amnt) (error 'zstream-input-port:read
+                                                       "unexpected special value")]
+                             [(and (zero? amnt)
+                                   (= (bytes-length dest) (z_stream-avail_out z)))
+                              (wrap-evt in (λ () 0))]
+                             [(zero? amnt) (- (bytes-length dest) (z_stream-avail_out z))]
+                             [else
+                              (set-z_stream-next_in! z buffer)
+                              (set-z_stream-avail_in! z amnt)
+                              (loop)]))]))])
       (when (exact-positive-integer? amnt)
         (bytes-copy! dest 0 dest-buffer 0 amnt))
       amnt))
@@ -135,9 +143,20 @@
    (make-input-port 'zstream-input-port
                     read-in
                     #f
-                    (λ () (when (z_stream-next_in z) (set-box! done-box (subbytes (z_stream-next_in z) 0 (z_stream-avail_in z))))
-                      (inflateEnd z))) in done-box p))
-(struct zstream-output-port (port old-port raw-ptr) #:property prop:output-port (struct-field-index port))
+                    (λ ()
+                      (when (z_stream-next_in z)
+                        (set-box! done-box (subbytes
+                                            (z_stream-next_in z)
+                                            0
+                                            (z_stream-avail_in z))))
+                      (inflateEnd z)))
+   in
+   done-box
+   p))
+
+
+(struct zstream-output-port (port old-port raw-ptr)
+  #:property prop:output-port (struct-field-index port))
 
 (define (open-zstream-output-port out [buffer-length 8192])
   (define buffer/raw (malloc _byte buffer-length 'atomic-interior))
@@ -152,8 +171,6 @@
   (set-z_stream-opaque! z #f)
 
   (deflateInit z Z-DEFAULT-COMPRESSION)
-
-  
   
   (define (write-deflated-bytes src start end)
     (set! ibuffer/raw (malloc _byte (- end start) (ptr-add src start) 'atomic-interior))
@@ -179,14 +196,18 @@
    (make-output-port 'zstream-output-port
                      out ; ready event
                      (λ (src start end non-blocking? enable-breaks?) ; write-out
-                       (if non-blocking? (get-write-evt src start end) (write-deflated-bytes src start end)))
+                       (if non-blocking?
+                           (get-write-evt src start end)
+                           (write-deflated-bytes src start end)))
                      (λ () ; close-port
                        (let loop ()
                          (set-z_stream-next_out! z buffer)
                          (set-z_stream-avail_out! z buffer-length)
-                         (let ([r (deflate z Z-FINISH)])
-                           (write-bytes buffer out 0 (- buffer-length (z_stream-avail_out z)))
-                           (when (= r Z-STREAM-OK) (loop))))
+                         (with-handlers ([exn-expected? void])
+                           (let ([r (deflate z Z-FINISH)])
+                             (unless (port-closed? out)
+                               (write-bytes buffer out 0 (- buffer-length (z_stream-avail_out z)))
+                               (when (= r Z-STREAM-OK) (loop))))))
                        (deflateEnd z)
                        (set! z #f)
                        (set! p #f)
@@ -199,31 +220,15 @@
    p))
 
 
-;; the following test indicates that this code can
-;; compress a 3MB text file in 450ms, compared to gzip's 400
-;; and decompress it back again in 50ms, compared to gunzip's 50
-
-;(module+ test
-;(define my-out (open-output-bytes))
-;(define my-zout (open-zstream-output-port my-out))
-;(define input (file->bytes "english-cmu.txt"))
-;(time (write-bytes-avail* input my-zout))
-;(bytes-length (get-output-bytes my-out #t))
-
-;(define input-stream (open-input-bytes input))
-;(set! my-zout (open-zstream-output-port my-out 1024))
-;(define input-buffer (make-bytes 1024))
-;(time (let loop ()
-;        (define amnt (read-bytes! input-buffer input-stream))
-;        (when (number? amnt)
-;          (write-bytes input-buffer my-zout 0 amnt)
-;          (loop))))
-;(bytes-length (get-output-bytes my-out))
-
-;(define my-in (open-input-bytes (get-output-bytes my-out)))
-;(define my-zin (open-zstream-input-port my-in))
-;(define my-text (time (port->bytes my-zin)))
-;(bytes-length my-text)
-;(for ([i (in-range 100)])
-;  (displayln (read-line my-zin)))
-;  (with-output-to-file "foo.txt" (lambda () (display my-text))))
+;; based on racket/web-server
+(define/match (exn-expected? _)
+  [((or
+     (exn:fail:network:errno _ _ (cons (or 54 104) 'posix))
+     (exn:fail:filesystem:errno _ _ (cons (or 54 104) 'posix))
+     (exn:fail:network:errno _ _ (cons 32 'posix))
+     (exn:fail:filesystem:errno _ _ (cons 32 'posix))
+     (exn:fail (regexp #rx"output port is closed") _)
+     (exn:fail (regexp #rx"error writing to stream port") _)))
+   #t]
+  [(_)
+   #f])
