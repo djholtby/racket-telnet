@@ -1,5 +1,5 @@
 #lang racket/base
-(require racket/class racket/bool racket/list racket/contract racket/set)
+(require racket/class racket/bool racket/list racket/contract racket/set racket/hash)
 
 (provide telnet-message? telnet-message?/c conn<%> terminal<%> terminal%)
 
@@ -27,6 +27,11 @@
 
 (define terminal<%>
   (interface (conn<%>)
+    [get-ip (->m (or/c #f string?))]
+    [is-secure? (->m any/c)]
+    [get-markup-settings (->m hash?)]
+    [set-markup-settings! (->m hash? any/c)]
+    [markup-settings-union! (->m hash? any/c)]
     [dimensions (->m (cons/c exact-positive-integer? exact-positive-integer?))]
     [supports? (->m symbol? boolean?)]
     [supports-union! (->m (set/c symbol? #:kind 'dont-care) ... void?)]
@@ -38,7 +43,23 @@
 (define terminal%
   (class* object% (terminal<%>)
     (super-new)
-    (init-field ip [secure? #f] [markup-settings (make-hasheq)])
+    (init [(ip/init ip)] [(secure?/init secure?) #f] [(mks/init markup-settings) (hasheq)])
+    (define ip ip/init)
+    (define secure? secure?/init)
+    (define markup-settings mks/init)
+
+    (define/public (get-ip) ip)
+    (define/public (is-secure?) secure?)
+    (define/public (get-markup-settings)
+      markup-settings)
+    (define/public (set-markup-settings! settings)
+      (set! markup-settings settings))
+    (define/public (markup-settings-union! settings)
+      (set! markup-settings
+            (hash-union markup-settings
+                        settings
+                        #:combine (λ (old new) new))))
+    
     
     (abstract dimensions get-encoding set-encoding! receive transmit connected?)
     (define supports (mutable-seteq 'color)) ; by default everything supports color!

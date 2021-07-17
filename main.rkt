@@ -913,8 +913,7 @@ EOR
     (define input-buffer  (open-output-bytes))
     (define output-buffer (open-output-bytes))
     (define subneg-buffer (open-output-bytes))  
-    (inherit receive)
-    (inherit-field markup-settings)
+    (inherit receive get-markup-settings)
     
     (define/public (flush-in)
       (receive (transcode-input (get-output-bytes input-buffer #t))))
@@ -1226,7 +1225,7 @@ EOR
         [(? bytes?) (send-bytes (escape-iac-and-cr msg)) #t]
         [(? string?) (send-bytes (escape-iac-and-cr (transcode-output msg))) #t]
         [(list 'text contents ...)
-         (parameterize ([tag-settings markup-settings])
+         (parameterize ([tag-settings (get-markup-settings)])
            (send-bytes (escape-iac-and-cr (transcode-output
                                            (xexpr->telnet msg terminal-settings
                                                           #:mxp (supports? 'mxp))))))
