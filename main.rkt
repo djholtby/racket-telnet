@@ -1285,7 +1285,15 @@ EOR
                        (begin
                          (receive b)
                          (on-close))
-                       (begin
+                       (with-handlers ([exn?
+                                        (λ (e)
+                                          (log-message
+                                           (current-logger)
+                                           'error
+                                           #f
+                                           (exn-message e)
+                                           (exn-continuation-marks e)
+                                           #f))])
                          (case state
                            [(data) (if (= b telnet:iac) (set! state 'iac) (accumulate b))]
                            [(iac)
