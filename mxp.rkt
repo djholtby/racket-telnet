@@ -247,9 +247,10 @@ a color scheme is a
            (define nl?
              (match (first content)
                [(? string?) (display (first content) out)
-                            (char=? (string-ref (first content)
-                                                (sub1 (string-length (first content))))
-                                    #\newline)]
+                            (and (positive? (string-length (first content)))
+                                 (char=? (string-ref (first content)
+                                                     (sub1 (string-length (first content))))
+                                         #\newline))]
                [(or 'br (list 'br '())) (display "\e[K\n" out) #t]
                [(list tag (list params ...) body ...)
                 (define tag-info (hash-ref (tags) tag #f))
@@ -339,6 +340,7 @@ a color scheme is a
   (displayln "XTERM+MXP\n--------")
   (displayln (xexpr->telnet test-text (terminal-support 'xterm #t #t #f #t) #:mxp #t))
   (xexpr->telnet test-text (terminal-support 'xterm #t #t #f #t) #:mxp #t)
+  (xexpr->telnet '(text () "") (terminal-support 'xterm #t #t #f #t) #:mxp #t)
   ;(displayln "HTML\n--------")
   ;(displayln (xexpr->string/settings test-text))
   )
