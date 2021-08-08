@@ -1249,97 +1249,96 @@ EOR
         [else (log-telnet-warning (format "msg not handled yet ~v" msg)) #t]))
 
     (define (on-close)
-      (set! connected #f)
-      
-      (with-handlers ([exn-expected? void])
-        (try-close-output-port out)
-        (when (zstream-output-port? out)
-          (flush-output (zstream-output-port-old-port out))
-          (try-close-output-port (zstream-output-port-old-port out))))
-
-      (with-handlers ([exn-expected? void])
-        (try-close-input-port in)
-        (when (zstream-input-port? in)
-          (try-close-input-port (zstream-input-port-old-port in))))
-      
-      (when (wrapped-input-port? in)
-        (try-close-input-port (wrapped-input-port-old-port in)))
-
-      
-      (define old-thread connection-thread)
-      (set! connection-thread #f)
-      
-      (when old-thread (kill-thread old-thread))
-      (eprintf "shouln't be reachable?\n")
-      )
-    
+      (when connected
+        (set! connected #f)
+        
+        (with-handlers ([exn-expected? void])
+          (try-close-output-port out)
+          (when (zstream-output-port? out)
+            (flush-output (zstream-output-port-old-port out))
+            (try-close-output-port (zstream-output-port-old-port out))))
+        
+        (with-handlers ([exn-expected? void])
+          (try-close-input-port in)
+          (when (zstream-input-port? in)
+            (try-close-input-port (zstream-input-port-old-port in))))
+        
+        (when (wrapped-input-port? in)
+          (try-close-input-port (wrapped-input-port-old-port in)))
+        
+        (set! connection-thread #f)))
+        
+           
     (define connection-thread
       (thread
        (lambda ()
-         (with-handlers ([exn:fail:telnet? (λ (e) log-telnet-exn)]
-                         [exn-expected? void])
-           (let loop ()
-             (if (port? (sync (thread-receive-evt) in))
-                 (let ([b (next-byte)])
-                   (if (eof-object? b)
-                       (begin
-                         (receive b)
-                         (on-close))
-                       (with-handlers ([exn?
-                                        (λ (e)
-                                          (log-message
-                                           (current-logger)
-                                           'error
-                                           #f
-                                           (exn-message e)
-                                           (exn-continuation-marks e)
-                                           #f))])
-                         (case state
-                           [(data) (if (= b telnet:iac) (set! state 'iac) (accumulate b))]
-                           [(iac)
-                            (define c (byte->telnet b))
-                            (case c
-                              [(sb will wont do dont) (set! state c)]
-                              [(iac) (set! state 'data) (accumulate b)]
-                              [else (set! state 'data) (receive c)])]
-                           [(will wont do dont)
-                            (with-handlers ([exn:fail:telnet?
-                                             log-telnet-exn])
-                              (receive-negotiate b))
-                            (set! state 'data)
-                            ]
-                           [(sb)
-                            (set! sb-telopt b)
-                            (set! state 'sb+telopt)]
-                           [(sb+telopt)
-                            (if (= b telnet:iac)
-                                (set! state 'sb+telopt+iac)
-                                (write-byte b subneg-buffer))]
-                           [(sb+telopt+iac)
-                            (if (= b telnet:iac)
-                                (begin (set! state 'sb+telopt) (write-byte b subneg-buffer))
-                                (begin
-                                  (unless (= b telnet:se)
-                                    (log-telnet-warning 
-                                     "invalid iac during subnegotiation - ~a" b))
-                                  (with-handlers ([exn:fail:telnet?
-                                                   log-telnet-exn])
-                                    (receive-subnegotiate sb-telopt
-                                                          (get-output-bytes subneg-buffer #t)))
-                                  (set! state 'data))
-                                )])
-                         (loop))))
-                 (if (with-handlers ([exn:fail:telnet?
-                                      log-telnet-exn])
-                       (send-message (thread-receive)))
-                     (loop)
-                     (receive eof)))))
-         (on-close))))
+         (let/ec brk
+           (with-handlers ([exn:fail:telnet? (λ (e) log-telnet-exn)]
+                           [exn-expected? void])
+             (let loop ()
+               (when connected
+               (if (port? (sync/enable-break (thread-receive-evt) in))
+                   (let ([b (next-byte)])
+                     (if (eof-object? b)
+                         (begin
+                           (receive b)
+                           (on-close)
+                           (brk))
+                         (with-handlers ([exn?
+                                          (λ (e)
+                                            (log-message
+                                             (current-logger)
+                                             'error
+                                             #f
+                                             (exn-message e)
+                                             (exn-continuation-marks e)
+                                             #f))])
+                           (case state
+                             [(data) (if (= b telnet:iac) (set! state 'iac) (accumulate b))]
+                             [(iac)
+                              (define c (byte->telnet b))
+                              (case c
+                                [(sb will wont do dont) (set! state c)]
+                                [(iac) (set! state 'data) (accumulate b)]
+                                [else (set! state 'data) (receive c)])]
+                             [(will wont do dont)
+                              (with-handlers ([exn:fail:telnet?
+                                               log-telnet-exn])
+                                (receive-negotiate b))
+                              (set! state 'data)
+                              ]
+                             [(sb)
+                              (set! sb-telopt b)
+                              (set! state 'sb+telopt)]
+                             [(sb+telopt)
+                              (if (= b telnet:iac)
+                                  (set! state 'sb+telopt+iac)
+                                  (write-byte b subneg-buffer))]
+                             [(sb+telopt+iac)
+                              (if (= b telnet:iac)
+                                  (begin (set! state 'sb+telopt) (write-byte b subneg-buffer))
+                                  (begin
+                                    (unless (= b telnet:se)
+                                      (log-telnet-warning 
+                                       "invalid iac during subnegotiation - ~a" b))
+                                    (with-handlers ([exn:fail:telnet?
+                                                     log-telnet-exn])
+                                      (receive-subnegotiate sb-telopt
+                                                            (get-output-bytes subneg-buffer #t)))
+                                    (set! state 'data))
+                                  )])
+                           (loop))))
+                   (if (with-handlers ([exn:fail:telnet?
+                                        log-telnet-exn])
+                         (send-message (thread-receive)))
+                       (loop)
+                       (receive eof))))))
+           (on-close)))))
        
     
     (define/override (transmit . args)
       (for ([msg (in-list args)])
-        (when (and connected connection-thread (thread-running? connection-thread))
+        (when (and connected (thread? connection-thread) (thread-running? connection-thread))
           (thread-send connection-thread msg))))))
 
 
