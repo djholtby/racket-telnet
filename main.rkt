@@ -527,7 +527,13 @@
             [(= b msdp:table-close)
              (read-byte i) ; chomp the table_close
              (make-immutable-hasheq acc)] 
-            [else (telnet-error 'read-msdp "Expected additional MSDP_VAR or MSDP_TABLE_CLOSE while reading table, but saw ~v, acc = ~v" b acc)])))
+            [else
+             (telnet-error
+              'read-msdp
+              (string-append
+               "Expected additional MSDP_VAR or MSDP_TABLE_CLOSE while reading table, "
+               "but saw ~v, acc = ~v")
+              b acc)])))
   ; (get-array) reads a MSDP array from port i
   ; get-array: -> (listof MSDP-Value)
   ; requires: next byte in i is MSDP_OPEN_ARRAY followed by valid MSDP data
@@ -543,8 +549,10 @@
              (read-byte i) ; chomp the array_close
              (reverse acc)]
             [else
-             (telnet-error 'read-msdp
-                           "Expected additional MSDP_VAL or MSDP_ARRAY_CLOSE while reading array, but saw ~v" b)])))
+             (telnet-error
+              'read-msdp
+              "Expected additional MSDP_VAL or MSDP_ARRAY_CLOSE while reading array, but saw ~v"
+              b)])))
   ; (get-atomic) reads an atomic MSDP value
   ; get-atomic: -> (anyof Num Bool Str)
   ; requires: next byte in i is NOT MSDP_ARRAY_OPEN or MSDP_TABLE_OPEN
@@ -1277,62 +1285,62 @@ EOR
                            [exn-expected? void])
              (let loop ()
                (when connected
-               (if (port? (sync/enable-break (thread-receive-evt) in))
-                   (let ([b (next-byte)])
-                     (if (eof-object? b)
-                         (begin
-                           (receive b)
-                           (on-close)
-                           (brk))
-                         (with-handlers ([exn?
-                                          (λ (e)
-                                            (log-message
-                                             (current-logger)
-                                             'error
-                                             #f
-                                             (exn-message e)
-                                             (exn-continuation-marks e)
-                                             #f))])
-                           (case state
-                             [(data) (if (= b telnet:iac) (set! state 'iac) (accumulate b))]
-                             [(iac)
-                              (define c (byte->telnet b))
-                              (case c
-                                [(sb will wont do dont) (set! state c)]
-                                [(iac) (set! state 'data) (accumulate b)]
-                                [else (set! state 'data) (receive c)])]
-                             [(will wont do dont)
-                              (with-handlers ([exn:fail:telnet?
-                                               log-telnet-exn])
-                                (receive-negotiate b))
-                              (set! state 'data)
-                              ]
-                             [(sb)
-                              (set! sb-telopt b)
-                              (set! state 'sb+telopt)]
-                             [(sb+telopt)
-                              (if (= b telnet:iac)
-                                  (set! state 'sb+telopt+iac)
-                                  (write-byte b subneg-buffer))]
-                             [(sb+telopt+iac)
-                              (if (= b telnet:iac)
-                                  (begin (set! state 'sb+telopt) (write-byte b subneg-buffer))
-                                  (begin
-                                    (unless (= b telnet:se)
-                                      (log-telnet-warning 
-                                       "invalid iac during subnegotiation - ~a" b))
-                                    (with-handlers ([exn:fail:telnet?
-                                                     log-telnet-exn])
-                                      (receive-subnegotiate sb-telopt
-                                                            (get-output-bytes subneg-buffer #t)))
-                                    (set! state 'data))
-                                  )])
-                           (loop))))
-                   (if (with-handlers ([exn:fail:telnet?
-                                        log-telnet-exn])
-                         (send-message (thread-receive)))
-                       (loop)
-                       (receive eof))))))
+                 (if (port? (sync/enable-break (thread-receive-evt) in))
+                     (let ([b (next-byte)])
+                       (if (eof-object? b)
+                           (begin
+                             (receive b)
+                             (on-close)
+                             (brk))
+                           (with-handlers ([exn?
+                                            (λ (e)
+                                              (log-message
+                                               (current-logger)
+                                               'error
+                                               #f
+                                               (exn-message e)
+                                               (exn-continuation-marks e)
+                                               #f))])
+                             (case state
+                               [(data) (if (= b telnet:iac) (set! state 'iac) (accumulate b))]
+                               [(iac)
+                                (define c (byte->telnet b))
+                                (case c
+                                  [(sb will wont do dont) (set! state c)]
+                                  [(iac) (set! state 'data) (accumulate b)]
+                                  [else (set! state 'data) (receive c)])]
+                               [(will wont do dont)
+                                (with-handlers ([exn:fail:telnet?
+                                                 log-telnet-exn])
+                                  (receive-negotiate b))
+                                (set! state 'data)
+                                ]
+                               [(sb)
+                                (set! sb-telopt b)
+                                (set! state 'sb+telopt)]
+                               [(sb+telopt)
+                                (if (= b telnet:iac)
+                                    (set! state 'sb+telopt+iac)
+                                    (write-byte b subneg-buffer))]
+                               [(sb+telopt+iac)
+                                (if (= b telnet:iac)
+                                    (begin (set! state 'sb+telopt) (write-byte b subneg-buffer))
+                                    (begin
+                                      (unless (= b telnet:se)
+                                        (log-telnet-warning 
+                                         "invalid iac during subnegotiation - ~a" b))
+                                      (with-handlers ([exn:fail:telnet?
+                                                       log-telnet-exn])
+                                        (receive-subnegotiate sb-telopt
+                                                              (get-output-bytes subneg-buffer #t)))
+                                      (set! state 'data))
+                                    )])
+                             (loop))))
+                     (if (with-handlers ([exn:fail:telnet?
+                                          log-telnet-exn])
+                           (send-message (thread-receive)))
+                         (loop)
+                         (receive eof))))))
            (on-close)))))
        
     
