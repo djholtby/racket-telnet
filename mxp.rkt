@@ -237,12 +237,12 @@ a color scheme is a
     (display (string-join loc ";") out)
     (display "m" out)))
 
-(define (xexpr->telnet xpr terminal #:mxp [mxp? #f])
+(define (xexpr->telnet xpr terminal #:mxp [mxp? #f] #:on-new-line? [on-new-line? #f])
   (define out (open-output-string))
   (write-ansi-code '("0") out)
   (let loop ([current-format default-fontmode]
              [content (cddr xpr)]
-             [last-was-nl? #f])
+             [last-was-nl? on-new-line?])
     (cond [(cons? content)
            (define nl?
              (match (first content)

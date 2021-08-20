@@ -1014,11 +1014,14 @@ EOR
              (next-byte)]
             [else b]))
 
+    (define start-of-line? #t)
+    
     (define (accumulate b)
       (if saw/r?
           (case b
             [(0)
              (write-byte 13 input-buffer)
+             (set! start-of-line? #t)
              (set! saw/r? #f)]
             [(10)
              ;(write-byte 10 input-buffer)
@@ -1027,7 +1030,7 @@ EOR
             [else
              (write-byte 13 input-buffer)
              (write-byte b input-buffer)
-             (log-telnet-info (format "malformed telnet byte sequence \\r\\u~a" b))
+             (log-telnet-debug (format "malformed telnet byte sequence \\r\\u~a" b))
              (set! saw/r? #f)])
           (if (= b 13) (set! saw/r? #t) (write-byte b input-buffer))))
 
@@ -1236,13 +1239,27 @@ EOR
 
     (define (send-message msg)
       (match msg
-        [(? bytes?) (send-bytes (escape-iac-and-cr msg)) #t]
-        [(? string?) (send-bytes (escape-iac-and-cr (transcode-output msg))) #t]
+        [(? bytes?)
+         (send-bytes (escape-iac-and-cr msg))
+         (when (positive? (bytes-length msg))
+           (set! start-of-line? (= 13 (bytes-ref msg (sub1 (bytes-length msg))))))
+         #t]
+        [(? string?)
+         (send-bytes (escape-iac-and-cr (transcode-output msg)))
+         (when (positive? (string-length msg))
+           (set! start-of-line?
+                 (char=? #\newline (string-ref msg (sub1 (string-length msg))))))
+         #t]
         [(list 'text contents ...)
          (parameterize ([tag-settings (get-markup-settings)])
-           (send-bytes (escape-iac-and-cr (transcode-output
-                                           (xexpr->telnet msg terminal-settings
-                                                          #:mxp (supports? 'mxp))))))
+           (let ([msg/string (xexpr->telnet msg terminal-settings
+                                            #:mxp (supports? 'mxp)
+                                            #:on-new-line? start-of-line?)])
+             (send-bytes (escape-iac-and-cr (transcode-output msg/string)))
+             (when (positive? (string-length msg/string))
+               (set! start-of-line?
+                     (char=? #\newline (string-ref msg/string
+                                                   (sub1 (string-length msg/string))))))))
          #t]
         [(list (and telopt (? telopt?)) args ...)
          (send this send-subnegotiate (telopt->byte telopt) #:flush? #t . args) #t]
