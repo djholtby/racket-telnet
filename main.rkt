@@ -5,7 +5,13 @@
 (require "connection.rkt" "compressed-ports.rkt" "mxp.rkt" "logger.rkt")
 
 ;; todo: split each manager into its own module?
-;; idiosynchratic racket style is to jam everything into a monolithic file ;)
+
+(require "private/member-keys.rkt")
+
+(define-member-name start-compress-input! start-compress-input!/k)
+(define-member-name start-compress-output! start-compress-output!/k)
+(define-member-name stop-compress-input! stop-compress-input!/k)
+(define-member-name stop-compress-output! stop-compress-output!/k)
 
 (provide telnet-conn% telnet-option-manager% mccp2-manager% gmcp-manager% msdp-manager%
          naws-manager% ttype-manager% charset-manager% mssp-manager%
