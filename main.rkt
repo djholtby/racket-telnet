@@ -1241,12 +1241,12 @@ EOR
       (match msg
         [(? bytes?)
          (send-bytes (escape-iac-and-cr msg))
-         (when (positive? (bytes-length msg))
+         (unless (zero? (bytes-length msg))
            (set! start-of-line? (= 13 (bytes-ref msg (sub1 (bytes-length msg))))))
          #t]
         [(? string?)
          (send-bytes (escape-iac-and-cr (transcode-output msg)))
-         (when (positive? (string-length msg))
+         (unless (zero? (string-length msg))
            (set! start-of-line?
                  (char=? #\newline (string-ref msg (sub1 (string-length msg))))))
          #t]
@@ -1256,7 +1256,7 @@ EOR
                                             #:mxp (supports? 'mxp)
                                             #:on-new-line? start-of-line?)])
              (send-bytes (escape-iac-and-cr (transcode-output msg/string)))
-             (when (positive? (string-length msg/string))
+             (unless (zero? (string-length msg/string))
                (set! start-of-line?
                      (char=? #\newline (string-ref msg/string
                                                    (sub1 (string-length msg/string))))))))
