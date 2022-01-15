@@ -8,17 +8,17 @@
 
 ;; ANSI/DIM is used only for BG colors and only for terminals that don't support bright BG
 (define (rgb->tuple . rgb)
-    (list (rgb->ansi rgb #t)
-          (rgb->ansi rgb #f)
-          (apply rgb->xterm rgb)
-          rgb))
+  (list (rgb->ansi rgb #t)
+        (rgb->ansi rgb #f)
+        (apply rgb->xterm rgb)
+        rgb))
 
 (define (string->color s)
   (define n (string->number s))
   (define hex/6 (regexp-match #px"^\\s*#([A-Fa-f0-9]{2})([A-Fa-f0-9]{2})([A-Fa-f0-9]{2})\\s*$" s))
   (define hex/3 (regexp-match #px"^\\s*#([A-Fa-f0-9])([A-Fa-f0-9])([A-Fa-f0-9])\\s*$" s))
   (define name-lookup (hash-ref rgb-table (string->symbol (string-downcase (string-trim s))) #f))
-    (cond [(and n (< n 8)) (list n n n #f)]
+  (cond [(and n (< n 8)) (list n n n #f)]
         [(and n (< n 16)) (list n (- n 8) n #f)]
         [(and n (< n 256))
          (list (xterm->ansi n #f) (xterm->ansi n #f) n #f)]
@@ -105,7 +105,7 @@
         [rv (if (zero? r) r (+ 55 (* 40 r)))]
         [gv (if (zero? g) g (+ 55 (* 40 g)))]
         [bv (if (zero? b) b (+ 55 (* 40 b)))])
-      (vector-set! color-table indx (list rv gv bv))))
+    (vector-set! color-table indx (list rv gv bv))))
 
 (for ([g (in-range 24)])
   (vector-set! color-table (+ 232 g)
